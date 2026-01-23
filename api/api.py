@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import asyncio
 from contextlib import asynccontextmanager
 from io import BytesIO
 import logging
@@ -11,7 +10,7 @@ from typing import Optional, List, Dict
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, JSONResponse
+from fastapi.responses import Response
 import numpy as np
 import soundfile as sf
 import soxr
@@ -24,6 +23,10 @@ from ttd_fastapi_utils import (
 )
 
 from qwen_tts import Qwen3TTSModel
+
+from api.lang import create_router as create_lang_router
+from api.lang import setup_language_openapi
+from api.lang import validate_language_or_400
 
 # 日志配置
 logging.basicConfig(
@@ -83,6 +86,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+setup_language_openapi(app, lambda: _model)
+app.include_router(create_lang_router(lambda: _model))
+
 # CUDA 健康检查
 cuda_monitor = setup_cuda_health(
     app,
@@ -99,20 +105,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/languages")
-async def get_languages():
-    if _model is None:
-        raise HTTPException(status_code=503, detail="Model not initialized")
-    
-    langs = _model.get_supported_languages()
-    return JSONResponse(content={"languages": langs})
-
 @app.post("/api/tts")
 async def api_tts(
     text: str = Form(...),
     ref_audio: UploadFile = File(...),
     ref_text: Optional[str] = Form(None),
-    language: str = Form("Auto"),
+    language: str = Form("auto"),
     x_vector_only_mode: bool = Form(False),
     remove_silence: bool = Form(False),
     postprocess: bool = Form(True),
@@ -131,11 +129,15 @@ async def api_tts(
     try:
         # 保存参考音频到临时文件
         ref_data = await ref_audio.read()
-        with tempfile.NamedTemporaryFile(suffix=os.path.splitext(ref_audio.filename)[1] or ".wav", delete=False) as f_ref:
+        with tempfile.NamedTemporaryFile(suffix=os.path.splitext(ref_audio.filename or "")[1] or ".wav", delete=False) as f_ref:
             f_ref.write(ref_data)
             temp_ref = f_ref.name
 
-        logger.info(f"Generating TTS for text: {text[:50]}... (lang={language}, xvec={x_vector_only_mode})")
+        language_norm = validate_language_or_400(language, lambda: _model)
+
+        logger.info(
+            f"Generating TTS for text: {text[:50]}... (lang={language_norm}, xvec={x_vector_only_mode})"
+        )
 
         # 执行推理
         # Qwen3TTSModel.generate_voice_clone 返回 (wavs, sample_rate)
@@ -143,7 +145,7 @@ async def api_tts(
         wavs, sr = await run_in_threadpool(
             _model.generate_voice_clone,
             text=text,
-            language=language,
+            language=language_norm,
             ref_audio=temp_ref,
             ref_text=ref_text,
             x_vector_only_mode=x_vector_only_mode,

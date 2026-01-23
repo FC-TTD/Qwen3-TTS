@@ -141,7 +141,7 @@ Qwen3-TTS/
 ## 6. 环境变量 (Environment Variables)
 
 | 变量名 | 默认值 | 说明 |
-|--------|--------|------|
+| -------- | -------- | ------ |
 | `MODEL_ID` | `Qwen/Qwen3-TTS-12Hz-1.7B-Base` | HuggingFace 模型 ID |
 | `DEVICE` | `cuda` | 计算设备 (cuda/cpu) |
 | `DTYPE` | `bfloat16` | 数据类型 |
@@ -225,4 +225,4 @@ Qwen3-TTS/
 
 ---
 
-*文档最后更新: 2026-01-24 (基于实际部署情况)*
+**文档最后更新**: 2026-01-24 (基于实际部署情况)
