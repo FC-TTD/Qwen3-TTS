@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+python-multipart
+soundfile
+numpy
+torch
+torchaudio
+ttd_fastapi_utils>=0.2.3
+soxr
+python-jose[cryptography]
+python-dotenv
+setuptools>=65.0.0

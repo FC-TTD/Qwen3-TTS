@@ -21,14 +21,15 @@ while [[ $# -gt 0 ]]; do
       SYNC_ONLY=true
       shift
       ;;
-    docker)
+    docker|swarm)
       TARGET="$1"
       shift
       ;;
     *)
-      echo "Usage: $0 [--ci] [--cd] docker | sync"
+      echo "Usage: $0 [--ci] [--cd] docker | swarm | sync"
       echo "Examples:"
-      echo "  $0 docker         # 同步 + 构建镜像 + 部署容器"
+      echo "  $0 docker         # 同步 + 构建镜像 + 部署容器 (Compose)"
+      echo "  $0 swarm          # 部署到 Docker Swarm (Stack)"
       echo "  $0 --ci docker    # 仅同步 + 构建镜像"
       echo "  $0 --cd docker    # 仅部署容器"
       echo "  $0 sync           # 仅同步项目文件"
@@ -57,7 +58,7 @@ elif [ "$CI_MODE" = false ] && [ "$CD_MODE" = true ]; then
   echo "仅部署服务 (docker,cd)..."
 else
   TAGS="$TAGS"
-  echo "使用CI/CD流水线部署 (docker)..."
+  echo "使用CI/CD流水线部署 ($TARGET)..."
 fi
 
 ansible-playbook -i "$ANSIBLE_DIR/inventory.yml" "$ANSIBLE_DIR/site.yml" --tags "$TAGS"

@@ -1,0 +1,82 @@
+version: "3.9"
+
+services:
+  api-1:
+    image: qwen-tts/api:latest
+    environment:
+      - TZ=Asia/Shanghai
+      - NVIDIA_VISIBLE_DEVICES=1
+      - LC_ALL=C.UTF-8
+      - PORT=8000
+      - DEVICE=cuda
+      - MODEL_ID=Qwen/Qwen3-TTS-12Hz-1.7B-Base
+    volumes:
+      - /TTD-Data/qwen3_tts/hf_cache:/root/.cache/huggingface
+    networks:
+      - caddy
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == ttd-worker
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+        delay: 10s
+      labels:
+        caddy: "http://qwen-api"
+        caddy.reverse_proxy: "{{upstreams 8000}}"
+        caddy.reverse_proxy.health_uri: "/health"
+        caddy.reverse_proxy.health_interval: 30s
+        caddy.reverse_proxy.health_timeout: 5s
+        caddy.reverse_proxy.health_status: 200
+
+  api-2:
+    image: qwen-tts/api:latest
+    environment:
+      - TZ=Asia/Shanghai
+      - NVIDIA_VISIBLE_DEVICES=2
+      - LC_ALL=C.UTF-8
+      - PORT=8000
+      - DEVICE=cuda
+      - MODEL_ID=Qwen/Qwen3-TTS-12Hz-1.7B-Base
+    volumes:
+      - /TTD-Data/qwen3_tts/hf_cache:/root/.cache/huggingface
+    networks:
+      - caddy
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == ttd-worker
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+        delay: 10s
+      labels:
+        caddy: "http://qwen-api"
+        caddy.reverse_proxy: "{{upstreams 8000}}"
+        caddy.reverse_proxy.health_uri: "/health"
+        caddy.reverse_proxy.health_interval: 30s
+        caddy.reverse_proxy.health_timeout: 5s
+        caddy.reverse_proxy.health_status: 200
+
+networks:
+  caddy:
+    external: true
