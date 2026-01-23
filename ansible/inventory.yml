@@ -1,0 +1,9 @@
+---
+all:
+  hosts:
+    ttd-worker:
+      ansible_host: ttd-worker
+      ansible_user: root
+    ttd-edge:
+      ansible_host: ttd-edge
+      ansible_user: root

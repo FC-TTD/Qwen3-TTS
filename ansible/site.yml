@@ -1,0 +1,48 @@
+---
+- name: 在 ttd-edge 上部署 Qwen3-TTS（docker build + compose）
+  hosts: ttd-edge
+  gather_facts: yes
+  vars:
+    project_name: "qwen3-tts"
+    project_path: "{{ playbook_dir }}/.."
+    remote_project_path: "/opt/qwen3-tts"
+    image_name: "qwen3-tts"
+    image_tag: "latest"
+
+    rsync_opts:
+      - "--exclude=*/__pycache__"
+      - "--exclude=*/.pytest_cache"
+      - "--exclude=*/.git"
+      - "--exclude=*.pyc"
+      - "--include=docker/"
+      - "--include=qwen_tts/"
+      - "--include=docker/Dockerfile"
+      - "--include=docker/compose.yaml"
+      - "--include=pyproject.toml"
+      - "--include=README.md"
+      - "--include=LICENSE"
+      - "--include=app.py"
+      - "--include=docker/**"
+      - "--include=qwen_tts/**"
+      - "--exclude=*"
+
+  tasks:
+    - name: 同步项目到 ttd-edge
+      ansible.posix.synchronize:
+        src: "{{ project_path }}/"
+        dest: "{{ remote_project_path }}/"
+        delete: false
+        rsync_opts: "{{ rsync_opts }}"
+      tags: [docker, ci, sync]
+
+    - name: 在 ttd-edge 上构建 Docker 镜像
+      ansible.builtin.command:
+        cmd: "docker build -t {{ image_name }}:{{ image_tag }} -f docker/Dockerfile ."
+        chdir: "{{ remote_project_path }}"
+      tags: [docker, ci]
+
+    - name: 使用 docker compose 启动服务
+      ansible.builtin.command:
+        cmd: "docker compose -f docker/compose.yaml up -d"
+        chdir: "{{ remote_project_path }}"
+      tags: [docker, cd]
