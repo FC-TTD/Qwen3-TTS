@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # 安装 API 额外依赖，包括私有仓库的 ttd-fastapi-utils
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,target=/tmp/requirements.txt,source=api/requirements.txt \
+    --mount=type=bind,target=/tmp/requirements.txt,source=requirements.txt \
     . /app/venv/bin/activate && \
     /root/.local/bin/uv pip install -r /tmp/requirements.txt \
     --index-url http://pypi-server/simple/ \
