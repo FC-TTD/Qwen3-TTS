@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel
+FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Asia/Shanghai \
@@ -6,11 +6,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy \
     UV_CACHE_DIR=/root/.cache/uv
 
 RUN --mount=type=cache,target=/var/cache/apt \
     apt-get update && apt-get install -y --no-install-recommends \
-      git git-lfs libsndfile1 ffmpeg curl ca-certificates sox \
+      libsndfile1 ffmpeg curl ca-certificates sox \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 uv
@@ -39,10 +40,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --extra-index-url https://pypi.org/simple
 
 # 安装 flash-attn
-# 使用 MAX_JOBS=4 限制编译并发，避免内存耗尽
 RUN --mount=type=cache,target=/root/.cache/uv \
     . /app/venv/bin/activate && \
-    FLASH_ATTENTION_SKIP_CUDA_BUILD=TRUE MAX_JOBS=4 \
     /root/.local/bin/uv pip install -U flash-attn --no-build-isolation
 
 # 复制源码

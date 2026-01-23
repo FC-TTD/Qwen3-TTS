@@ -3,9 +3,16 @@ from contextlib import asynccontextmanager
 from io import BytesIO
 import logging
 import os
+import sys
 import tempfile
 import time
 from typing import Optional, List, Dict
+
+# 添加当前目录到 Python 路径，确保相对导入可用
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# 限制 PyTorch 显存碎片化缓存
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -24,9 +31,9 @@ from ttd_fastapi_utils import (
 
 from qwen_tts import Qwen3TTSModel
 
-from api.lang import create_router as create_lang_router
-from api.lang import setup_language_openapi
-from api.lang import validate_language_or_400
+from lang import create_router as create_lang_router
+from lang import setup_language_openapi
+from lang import validate_language_or_400
 
 # 日志配置
 logging.basicConfig(
@@ -188,6 +195,8 @@ async def api_tts(
     except ValueError as e:
         logger.error(f"Validation error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("TTS generation failed")
         raise HTTPException(status_code=500, detail="Internal server error")

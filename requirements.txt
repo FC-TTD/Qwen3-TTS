@@ -5,7 +5,7 @@ soundfile
 numpy
 torch
 torchaudio
-ttd_fastapi_utils>=0.2.3
+ttd_fastapi_utils
 soxr
 python-jose[cryptography]
 python-dotenv
