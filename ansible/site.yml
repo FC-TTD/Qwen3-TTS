@@ -46,3 +46,45 @@
         cmd: "docker compose -f docker/compose.yaml up -d"
         chdir: "{{ remote_project_path }}"
       tags: [docker, cd]
+
+- name: 部署 Qwen3-TTS API Swarm 服务
+  hosts: localhost
+  gather_facts: yes
+  vars:
+    project_name: "qwen-tts"
+    project_path: "{{ playbook_dir }}/.."
+    compose_file: "{{ project_path }}/api/stack.yml"
+    dockerfile: "{{ project_path }}/api/Dockerfile"
+    image_name: "api"
+    image_tag: "latest"
+    build_host: "ttd-nest"  # 使用 nest 节点构建镜像
+    ci_registry_url: "registry.ttd"
+
+    rsync_opts:
+      - "--exclude=*/__pycache__"
+      - "--exclude=*/.pytest_cache"
+      - "--exclude=*/.git"
+      - "--exclude=*.pyc"
+      - "--include=api/"
+      - "--include=api/**"
+      - "--include=qwen_tts/"
+      - "--include=qwen_tts/**"
+      - "--include=pyproject.toml"
+      - "--include=README.md"
+      - "--include=LICENSE"
+      - "--exclude=*"
+
+  tags: [swarm]
+
+  roles:
+    - role: /workspace/z/ansible/roles/docker_ci_cd
+      vars:
+        ci_project_name: "{{ project_name }}"
+        ci_project_path: "{{ project_path }}"
+        ci_dockerfile_path: "{{ dockerfile }}"
+        ci_image_name: "{{ image_name }}"
+        ci_image_tag: "{{ image_tag }}"
+        ci_compose_file_path: "{{ compose_file }}"
+        ci_build_host: "{{ build_host }}"
+        ci_rsync_opts: "{{ rsync_opts }}"
+        pt_stack_name: "{{ project_name }}"
