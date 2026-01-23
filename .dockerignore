@@ -1,0 +1,23 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pytest_cache/
+
+# Git
+.git/
+
+# Model weights / large artifacts
+**/*.pt
+**/*.bin
+**/*.safetensors
+**/*.ckpt
+**/*.onnx
+**/*.pth
+**/checkpoints/
+**/models/
+
+# Local data
+**/data/
+**/.cache/
