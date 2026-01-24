@@ -1,19 +1,20 @@
 # syntax=docker/dockerfile:1.7-labs
-FROM pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel
+FROM pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Asia/Shanghai \
     PYTHONPATH=/app \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    LD_LIBRARY_PATH=/opt/appenv/lib/python3.11/site-packages/torch/lib:${LD_LIBRARY_PATH}
 
 RUN --mount=type=cache,target=/var/cache/apt \
     apt-get update && apt-get install -y --no-install-recommends \
       git git-lfs libsndfile1 ffmpeg curl ca-certificates sox \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python -m venv --system-site-packages /opt/appenv
+RUN python -m venv /opt/appenv
 ENV VIRTUAL_ENV=/opt/appenv
 ENV PATH="/opt/appenv/bin:${PATH}"
 
@@ -23,21 +24,39 @@ COPY pyproject.toml LICENSE README.md ./
 RUN mkdir -p qwen_tts && touch qwen_tts/__init__.py
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip \
-    && pip install "gradio>=5.0,<6.0" \
-    && pip install .
+    /opt/appenv/bin/python -m pip install --upgrade pip \
+    && /opt/appenv/bin/python -m pip install "torch==2.6.0+cu126" "torchaudio==2.6.0+cu126" --index-url https://download.pytorch.org/whl/cu126 \
+    && /opt/appenv/bin/python -m pip install \
+          "transformers==4.57.3" \
+          "accelerate==1.12.0" \
+          "gradio>=5.0,<6.0" \
+          librosa soundfile sox onnxruntime einops \
+    && /opt/appenv/bin/python -m pip install . --no-deps \
+    && /opt/appenv/bin/python -m pip install "ttd_fastapi_utils>=0.2.4" --index-url http://pypi-server/simple/ --trusted-host pypi-server
 
-# Install flash-attn separately as it might take time and requires hardware compatibility
-# Removing cache mount to avoid [Errno 18] Invalid cross-device link when moving downloaded wheels
-RUN FLASH_ATTENTION_SKIP_CUDA_BUILD=TRUE MAX_JOBS=4 pip install -U flash-attn --no-build-isolation
-
-RUN find /opt/appenv -type d -name "__pycache__" -prune -exec rm -rf {} + || true \
-    && rm -rf /root/.cache/pip || true
+ARG FLASH_ATTN_VERSION=2.8.3
+RUN set -eux; \
+    PYTAG="$(/opt/appenv/bin/python -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')"; \
+    ABI="$(/opt/appenv/bin/python -c 'import torch; import torch._C; print("TRUE" if torch._C._GLIBCXX_USE_CXX11_ABI else "FALSE")')"; \
+    case "${PYTAG}-${ABI}" in \
+      cp310-TRUE)  WHL="flash_attn-${FLASH_ATTN_VERSION}+cu12torch2.6cxx11abiTRUE-cp310-cp310-linux_x86_64.whl";  SHA="0a6d13b01818ff2758bdb9dc87362c72016303a7c26dd4f497e9e82006744209" ;; \
+      cp311-TRUE)  WHL="flash_attn-${FLASH_ATTN_VERSION}+cu12torch2.6cxx11abiTRUE-cp311-cp311-linux_x86_64.whl";  SHA="c49f18cfe4ece3008912ff81c87171ed3a8643900923e6fca64fece8a3f369e2" ;; \
+      cp312-TRUE)  WHL="flash_attn-${FLASH_ATTN_VERSION}+cu12torch2.6cxx11abiTRUE-cp312-cp312-linux_x86_64.whl";  SHA="ae3b8b402ca649e0974f20a9b8641cc5a72233722674cf0f7b524fbdf736fdb7" ;; \
+      cp313-TRUE)  WHL="flash_attn-${FLASH_ATTN_VERSION}+cu12torch2.6cxx11abiTRUE-cp313-cp313-linux_x86_64.whl";  SHA="d0e369bafb4555d344073589acaff6bdbabd6c7d96ec36b0cafdb309cf246d64" ;; \
+      cp310-FALSE) WHL="flash_attn-${FLASH_ATTN_VERSION}+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"; SHA="1c8d2fb083edea3647688fcd4bb21d4641eb01f50359d8fa6200ecd093ba1c54" ;; \
+      cp311-FALSE) WHL="flash_attn-${FLASH_ATTN_VERSION}+cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"; SHA="0abc62d04f28f140f4f76ab7cfd1d8ce24a69c6ab0cbace8d4ab99640b68dc0a" ;; \
+      cp312-FALSE) WHL="flash_attn-${FLASH_ATTN_VERSION}+cu12torch2.6cxx11abiFALSE-cp312-cp312-linux_x86_64.whl"; SHA="51100460844b0cb4bd5adc38af60c56adff8904508861aeb5ef7a1c2e41f529a" ;; \
+      cp313-FALSE) WHL="flash_attn-${FLASH_ATTN_VERSION}+cu12torch2.6cxx11abiFALSE-cp313-cp313-linux_x86_64.whl"; SHA="affbf6cbe51afb3a9e4d14b68a68a09de29c2c45515dfd6d8315174a68b46550" ;; \
+      *) echo "Unsupported combination: ${PYTAG}-${ABI}"; exit 1 ;; \
+    esac; \
+    curl -fL -o "/tmp/${WHL}" "https://github.com/Dao-AILab/flash-attention/releases/download/v${FLASH_ATTN_VERSION}/${WHL}"; \
+    echo "${SHA}  /tmp/${WHL}" | sha256sum -c -; \
+    /opt/appenv/bin/python -m pip install --no-deps "/tmp/${WHL}"; \
+    rm -f "/tmp/${WHL}"
 
 COPY qwen_tts ./qwen_tts
 COPY app.py ./
 
 EXPOSE 8000
 
-# Default model is CustomVoice as it's a good balanced choice
 CMD ["python", "app.py"]

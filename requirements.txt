@@ -3,9 +3,9 @@ uvicorn[standard]
 python-multipart
 soundfile
 numpy
-torch
-torchaudio
-ttd_fastapi_utils
+# torch==2.5.1
+# torchaudio==2.5.1
+ttd_fastapi_utils>=0.2.4
 soxr
 python-jose[cryptography]
 python-dotenv
