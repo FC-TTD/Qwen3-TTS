@@ -7,11 +7,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
-    UV_CACHE_DIR=/root/.cache/uv
+    UV_CACHE_DIR=/root/.cache/uv \
+    LD_LIBRARY_PATH=/app/venv/lib/python3.11/site-packages/torch/lib:${LD_LIBRARY_PATH}
 
 RUN --mount=type=cache,target=/var/cache/apt \
     apt-get update && apt-get install -y --no-install-recommends \
-      libsndfile1 ffmpeg curl ca-certificates sox \
+      libsndfile1 ffmpeg curl ca-certificates sox ninja-build \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 uv
@@ -26,9 +27,10 @@ RUN mkdir -p qwen_tts && touch qwen_tts/__init__.py
 
 # 创建虚拟环境并安装主项目依赖
 RUN --mount=type=cache,target=/root/.cache/uv \
-    /root/.local/bin/uv venv /app/venv && \
+    /root/.local/bin/uv venv --seed /app/venv && \
     . /app/venv/bin/activate && \
-    /root/.local/bin/uv pip install -e .
+    /app/venv/bin/python -m pip install "torch==2.5.1+cu124" "torchaudio==2.5.1+cu124" --index-url https://download.pytorch.org/whl/cu124 && \
+    /root/.local/bin/uv pip install -e . --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu124
 
 # 安装 API 额外依赖，包括私有仓库的 ttd-fastapi-utils
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -36,13 +38,17 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     . /app/venv/bin/activate && \
     /root/.local/bin/uv pip install -r /tmp/requirements.txt \
     --index-url http://pypi-server/simple/ \
-    --trusted-host pypi-server \
-    --extra-index-url https://pypi.org/simple
+    --trusted-host pypi-server
 
-# 安装 flash-attn
-RUN --mount=type=cache,target=/root/.cache/uv \
+# 安装 flash-attn (runtime 镜像: 只允许 wheel；从 GitHub Releases 直链下载 + sha256 校验)
+ARG FLASH_ATTN_WHL_FILENAME=flash_attn-2.8.3+cu12torch2.5cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
+ARG FLASH_ATTN_WHL_SHA256=ca5a5614530bad3bcaf936917d53a6d60c9057d1218030efe3ca588cb4f4ebb6
+RUN --mount=type=cache,target=/root/.cache/pip \
     . /app/venv/bin/activate && \
-    /root/.local/bin/uv pip install -U flash-attn --no-build-isolation
+    curl -fL -o "/tmp/${FLASH_ATTN_WHL_FILENAME}" "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/${FLASH_ATTN_WHL_FILENAME}" && \
+    echo "${FLASH_ATTN_WHL_SHA256}  /tmp/${FLASH_ATTN_WHL_FILENAME}" | sha256sum -c - && \
+    pip install --no-deps "/tmp/${FLASH_ATTN_WHL_FILENAME}" && \
+    rm -f "/tmp/${FLASH_ATTN_WHL_FILENAME}"
 
 # 复制源码
 COPY qwen_tts ./qwen_tts

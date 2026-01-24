@@ -9,8 +9,9 @@ from typing import Any, Dict
 import gradio as gr
 import numpy as np
 import torch
+from ttd_fastapi_utils import SmartModel
 
-loaded_models: Dict[tuple, Any] = {}
+loaded_models: Dict[tuple, SmartModel] = {}
 model_last_used: Dict[tuple, float] = {}
 MAX_MODELS = int(os.environ.get("QWEN_TTS_MAX_MODELS", "1"))
 
@@ -46,6 +47,12 @@ def cleanup_old_models(keep_key: tuple | None = None) -> None:
         if keep_key is not None and oldest_key == keep_key:
             return
         print(f"[app] Unloading model: {oldest_key}")
+        
+        # Stop the auto-unload monitor and force unload
+        wrapper = loaded_models[oldest_key]
+        wrapper.stop()
+        wrapper.unload()
+        
         del loaded_models[oldest_key]
         del model_last_used[oldest_key]
         gc.collect()
@@ -60,39 +67,47 @@ def get_model(model_type: str, model_size: str):
     key = (model_type, model_size)
     if key in loaded_models:
         model_last_used[key] = time.time()
-        return loaded_models[key]
+        return loaded_models[key].get()
 
     cleanup_old_models(keep_key=key)
 
-    print(f"[app] Loading model: {key}")
+    print(f"[app] Preparing model loader: {key}")
     print(f"[app] {_memory_info()}")
 
-    from qwen_tts import Qwen3TTSModel
+    def loader():
+        from qwen_tts import Qwen3TTSModel
 
-    hf_token = os.environ.get("HF_TOKEN") or None
-    repo_id = _repo_id(model_type, model_size)
+        hf_token = os.environ.get("HF_TOKEN") or None
+        repo_id = _repo_id(model_type, model_size)
 
-    attn_impl = None
-    try:
-        import flash_attn  # noqa: F401
-
-        attn_impl = "flash_attention_2"
-    except Exception:
         attn_impl = None
+        try:
+            import flash_attn  # noqa: F401
 
-    kwargs: Dict[str, Any] = dict(
-        device_map="cuda",
-        dtype=torch.bfloat16,
-        attn_implementation=attn_impl,
-    )
-    if hf_token:
-        kwargs["token"] = hf_token
+            attn_impl = "flash_attention_2"
+        except Exception:
+            attn_impl = None
 
-    loaded_models[key] = Qwen3TTSModel.from_pretrained(repo_id, **kwargs)
+        kwargs: Dict[str, Any] = dict(
+            device_map="cuda",
+            dtype=torch.bfloat16,
+            attn_implementation=attn_impl,
+        )
+        if hf_token:
+            kwargs["token"] = hf_token
+
+        print(f"[app] Loading model from {repo_id}...")
+        model = Qwen3TTSModel.from_pretrained(repo_id, **kwargs)
+        print(f"[app] Model loaded: {key}")
+        print(f"[app] {_memory_info()}")
+        return model
+
+    # Initialize with SmartModel, default 2h timeout
+    wrapper = SmartModel(loader, timeout_seconds=7200)
+    loaded_models[key] = wrapper
     model_last_used[key] = time.time()
-    print(f"[app] Model loaded: {key}")
-    print(f"[app] {_memory_info()}")
-    return loaded_models[key]
+    
+    return wrapper.get()
 
 
 def _normalize_audio(wav, eps=1e-12, clip=True):

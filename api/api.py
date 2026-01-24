@@ -27,6 +27,7 @@ from ttd_fastapi_utils import (
     loudnorm as _loudnorm,
     setup_cuda_health,
     trim_silence as _trim_silence,
+    SmartModel,
 )
 
 from qwen_tts import Qwen3TTSModel
@@ -45,8 +46,8 @@ logging.getLogger("uvicorn.access").addFilter(
     lambda r: "/health" not in r.getMessage() and "/docs" not in r.getMessage()
 )
 
-# 全局变量
-_model: Optional[Qwen3TTSModel] = None
+# 全局模型管理器
+_model_manager: Optional[SmartModel] = None
 
 # 配置参数
 MODEL_ID = os.environ.get("MODEL_ID", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
@@ -62,8 +63,9 @@ def _get_torch_dtype(dtype_str: str):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _model
-    try:
+    global _model_manager
+    
+    def loader():
         logger.info(f"Loading Qwen3-TTS model: {MODEL_ID} on {DEVICE}...")
         
         attn_impl = None
@@ -74,17 +76,25 @@ async def lifespan(app: FastAPI):
         except ImportError:
             logger.info("Flash Attention not found, using default attention")
 
-        _model = Qwen3TTSModel.from_pretrained(
+        model = Qwen3TTSModel.from_pretrained(
             MODEL_ID,
             device_map=DEVICE,
             dtype=_get_torch_dtype(DTYPE),
             attn_implementation=attn_impl
         )
         logger.info("Qwen3-TTS model loaded successfully")
+        return model
+
+    try:
+        logger.info("Initializing Qwen3-TTS model manager...")
+        _model_manager = SmartModel(loader, timeout_seconds=7200)
         yield
     except Exception:
-        logger.exception("Failed to initialize Qwen3-TTS model")
+        logger.exception("Failed to initialize Qwen3-TTS model manager")
         raise
+    finally:
+        if _model_manager:
+            _model_manager.stop()
 
 app = FastAPI(
     title="Qwen3-TTS API",
@@ -93,14 +103,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-setup_language_openapi(app, lambda: _model)
-app.include_router(create_lang_router(lambda: _model))
+def get_model():
+    if _model_manager:
+        return _model_manager.get()
+    return None
+
+setup_language_openapi(app, get_model)
+app.include_router(create_lang_router(get_model))
 
 # CUDA 健康检查
 cuda_monitor = setup_cuda_health(
     app,
     path="/health",
-    ready_predicate=lambda: _model is not None,
+    ready_predicate=lambda: _model_manager is not None,
 )
 
 # CORS
@@ -127,14 +142,15 @@ async def api_tts(
     repetition_penalty: float = Form(1.05),
     max_new_tokens: int = Form(2048),
 ):
-    if _model is None:
-        raise HTTPException(status_code=503, detail="Model not initialized")
+    if _model_manager is None:
+        raise HTTPException(status_code=503, detail="Model manager not initialized")
 
     t0 = time.perf_counter()
     temp_ref = None
     
     try:
-        # 保存参考音频到临时文件
+        # 获取模型实例
+        _model = _model_manager.get()
         ref_data = await ref_audio.read()
         with tempfile.NamedTemporaryFile(suffix=os.path.splitext(ref_audio.filename or "")[1] or ".wav", delete=False) as f_ref:
             f_ref.write(ref_data)
