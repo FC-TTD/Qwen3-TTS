@@ -5,7 +5,7 @@ services:
     image: qwen-tts/api:latest
     environment:
       - TZ=Asia/Shanghai
-      - NVIDIA_VISIBLE_DEVICES=0
+      - NVIDIA_VISIBLE_DEVICES=2
       - LC_ALL=C.UTF-8
       - PORT=8000
       - DEVICE=cuda
@@ -59,7 +59,7 @@ services:
     <<: *api_base
     environment:
       - TZ=Asia/Shanghai
-      - NVIDIA_VISIBLE_DEVICES=2
+      - NVIDIA_VISIBLE_DEVICES=0
       - LC_ALL=C.UTF-8
       - PORT=8000
       - DEVICE=cuda
