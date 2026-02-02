@@ -175,7 +175,7 @@ async def api_tts(
 
         def _align_duration_sec(wav: np.ndarray, _sr: int) -> float:
             try:
-                wav_trim = _trim_silence(wav, _sr)
+                wav_trim = _trim_silence(wav, _sr, min_silence_duration_ms=0)
             except Exception:
                 logger.exception("Silence trimming failed (align)")
                 wav_trim = wav
