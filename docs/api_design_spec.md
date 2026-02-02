@@ -68,6 +68,8 @@ Qwen3-TTS/
   - `language` (form, default="Auto"): 语言代码
   - `x_vector_only_mode` (form, default=false): 仅使用 x-vector 模式
   - `remove_silence` (form, default=false): 移除静音
+  - `speed` (form, default=1.0): 语速倍率，>1 更快更短，<1 更慢更长。实现由 `ttd-fastapi-utils==0.3.0` 的 `speed_control` 插件提供（SoX `sox tempo -s` 不变调变速）
+  - `expected_duration` (form, optional): 期望有效发音时长(秒)。对齐反馈采用内部临时 trim(B-align)；如果偏差>5%则计算 `final_speed` 并在 API 层使用 `speed_control` 对生成音频做一次 time-stretch（不再二次推理）。与 remove_silence 正交
   - `postprocess` (form, default=true): 音频后处理
   - `temperature` (form, default=0.9): 生成温度
   - `top_p` (form, default=1.0): Top-p 采样
@@ -148,6 +150,7 @@ Qwen3-TTS/
 | `PORT` | `8000` | 服务端口 |
 | `TZ` | `Asia/Shanghai` | 时区 |
 | `NVIDIA_VISIBLE_DEVICES` | - | GPU 可见性 (1 或 2) |
+| `TTD_SPEED_CONTROL_BYPASS_SOX` | - | speed_control 插件旁路开关：设置为非空值时绕过 SoX 并原样透传音频（排障/环境缺少 SoX） |
 
 ## 7. 错误处理 (Error Handling)
 

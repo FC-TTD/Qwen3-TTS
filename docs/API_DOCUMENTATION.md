@@ -116,7 +116,9 @@ Content-Type: multipart/form-data
 | ref_text | string | 条件必需 | - | 参考音频对应的文本 (当x_vector_only_mode=False时必需) |
 | language | string | ❌ | "auto" | 目标语言 |
 | x_vector_only_mode | boolean | ❌ | false | 是否仅使用X向量模式 |
-| remove_silence | boolean | ❌ | true | 是否移除静音片段 |
+| remove_silence | boolean | ❌ | false | 是否移除静音片段 |
+| speed | float | ❌ | 1.0 | 语速倍率：>1 更快更短，<1 更慢更长。实现由 `ttd-fastapi-utils==0.3.0` 的 `speed_control` 插件提供（SoX `sox tempo -s` 不变调变速） |
+| expected_duration | float | ❌ | - | 期望有效发音时长(秒)。对齐反馈采用内部临时 trim(B-align)；如果偏差>5%则基于比例计算 `final_speed`，并在 API 层使用 `speed_control` 对生成音频做一次 time-stretch（不再二次推理）。与 remove_silence 正交 |
 | postprocess | boolean | ❌ | true | 是否进行后处理 |
 | temperature | float | ❌ | 0.9 | 生成温度 (0.1-1.0) |
 | top_p | float | ❌ | 1.0 | Top-p采样 (0.1-1.0) |
@@ -191,6 +193,28 @@ curl -X POST \
   -F "x_vector_only_mode=true" \
   http://qwen-api/api/tts \
   --output x_vector_output.wav
+
+# 手动调节语速
+curl -X POST \
+  -F "text=Hello, world!" \
+  -F "ref_audio=@reference.wav" \
+  -F "ref_text=Hello, world!" \
+  -F "speed=1.2" \
+  http://qwen-api/api/tts \
+  --output speed_1_2.wav
+
+# 绕过 SoX（排障/环境缺少 SoX 时使用）：
+# 设置环境变量 TTD_SPEED_CONTROL_BYPASS_SOX 为任意非空值，speed_control 将原样透传音频
+# export TTD_SPEED_CONTROL_BYPASS_SOX=1
+
+# 期望时长自适应（B-align：内部按trim后有效发音时长对齐；remove_silence仍只控制最终裁剪）
+curl -X POST \
+  -F "text=Hello, world!" \
+  -F "ref_audio=@reference.wav" \
+  -F "ref_text=Hello, world!" \
+  -F "expected_duration=2.0" \
+  http://qwen-api/api/tts \
+  --output aligned_2s.wav
 ```
 
 ### Python SDK 示例
