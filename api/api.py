@@ -29,6 +29,7 @@ from ttd_fastapi_utils import (
     trim_silence as _trim_silence,
     SmartModel,
 )
+from ttd_fastapi_utils.speed_control import time_stretch_wav
 
 from qwen_tts import Qwen3TTSModel
 
@@ -135,6 +136,8 @@ async def api_tts(
     language: str = Form("auto"),
     x_vector_only_mode: bool = Form(False),
     remove_silence: bool = Form(False),
+    speed: float = Form(1.0),
+    expected_duration: Optional[float] = Form(None),
     postprocess: bool = Form(True),
     temperature: float = Form(0.9),
     top_p: float = Form(1.0),
@@ -149,6 +152,11 @@ async def api_tts(
     temp_ref = None
     
     try:
+        if speed <= 0:
+            raise HTTPException(status_code=400, detail="speed must be > 0")
+        if expected_duration is not None and expected_duration <= 0:
+            raise HTTPException(status_code=400, detail="expected_duration must be > 0")
+
         # 获取模型实例
         _model = _model_manager.get()
         ref_data = await ref_audio.read()
@@ -162,25 +170,57 @@ async def api_tts(
             f"Generating TTS for text: {text[:50]}... (lang={language_norm}, xvec={x_vector_only_mode})"
         )
 
+        def _clamp(v: float, lo: float, hi: float) -> float:
+            return max(lo, min(hi, v))
+
+        def _align_duration_sec(wav: np.ndarray, _sr: int) -> float:
+            try:
+                wav_trim = _trim_silence(wav, _sr)
+            except Exception:
+                logger.exception("Silence trimming failed (align)")
+                wav_trim = wav
+            return float(wav_trim.shape[0]) / float(_sr)
+
+        def _infer_once():
+            return _model.generate_voice_clone(
+                text=text,
+                language=language_norm,
+                ref_audio=temp_ref,
+                ref_text=ref_text,
+                x_vector_only_mode=x_vector_only_mode,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                repetition_penalty=repetition_penalty,
+                max_new_tokens=max_new_tokens,
+            )
+
         # 执行推理
         # Qwen3TTSModel.generate_voice_clone 返回 (wavs, sample_rate)
         # wavs 是 List[np.ndarray]
-        wavs, sr = await run_in_threadpool(
-            _model.generate_voice_clone,
-            text=text,
-            language=language_norm,
-            ref_audio=temp_ref,
-            ref_text=ref_text,
-            x_vector_only_mode=x_vector_only_mode,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            max_new_tokens=max_new_tokens,
-        )
+        wavs, sr = await run_in_threadpool(_infer_once)
 
         wav_np = wavs[0]
-        
+
+        final_speed = float(speed)
+        if expected_duration is not None and expected_duration > 0:
+            current_duration = _align_duration_sec(wav_np, sr)
+            rel_err = abs(current_duration - expected_duration) / expected_duration
+            if rel_err > 0.05:
+                factor = current_duration / expected_duration
+                factor = _clamp(factor, 0.5, 1.5)
+                final_speed = _clamp(final_speed * factor, 0.5, 2.0)
+                logger.info(
+                    f"expected_duration align: speed={speed:.3f}, expected={expected_duration:.3f}s, "
+                    f"current={current_duration:.3f}s, final_speed={final_speed:.3f}"
+                )
+
+        if final_speed != 1.0:
+            try:
+                wav_np = time_stretch_wav(wav_np, sr, final_speed, allow_passthrough_on_failure=True)
+            except Exception:
+                logger.exception("Speed control time-stretch failed")
+
         # 后处理
         if remove_silence:
             try:

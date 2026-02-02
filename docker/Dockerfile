@@ -30,9 +30,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
           "transformers==4.57.3" \
           "accelerate==1.12.0" \
           "gradio>=5.0,<6.0" \
-          librosa soundfile sox onnxruntime einops \
+          librosa soundfile sox onnxruntime einops scipy \
     && /opt/appenv/bin/python -m pip install . --no-deps \
-    && /opt/appenv/bin/python -m pip install "ttd_fastapi_utils>=0.2.4" --index-url http://pypi-server/simple/ --trusted-host pypi-server
+    && /opt/appenv/bin/python -m pip install "ttd_fastapi_utils>=0.3.0" --index-url http://pypi-server/simple/ --trusted-host pypi-server
 
 ARG FLASH_ATTN_VERSION=2.8.3
 RUN set -eux; \
