@@ -7,18 +7,15 @@ services:
       dockerfile: docker/Dockerfile
     image: qwen3-tts:latest
     container_name: qwen3-tts
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
     environment:
       - TZ=Asia/Shanghai
       - NVIDIA_VISIBLE_DEVICES=2
       - GRADIO_SERVER_NAME=0.0.0.0
       - GRADIO_SERVER_PORT=8000
     volumes:
-      - type: bind
-        source: /TTD-Data/qwen3_tts/hf_cache
-        target: /root/.cache/huggingface
+      - /TTD-Data/qwen3_tts/hf_cache:/root/.cache/huggingface
+      - /TTD/04_应用/qwen3/lora:/app/lora
+      - /TTD/04_应用/voxcpm/data:/app/data
     ports:
       - "5264:8000"
     restart: unless-stopped

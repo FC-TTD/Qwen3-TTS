@@ -1,6 +1,17 @@
 #!/bin/bash
 set -e
 
+# 默认 usage 输出
+usage() {
+  echo "Usage: $0 [--ci] [--cd] docker | swarm | sync"
+  echo "Examples:"
+  echo "  $0 docker         # 同步 + 构建镜像 + 部署容器 (Compose)"
+  echo "  $0 swarm          # 部署到 Docker Swarm (Stack)"
+  echo "  $0 --ci docker    # 仅同步 + 构建镜像"
+  echo "  $0 --cd docker    # 仅部署容器"
+  echo "  $0 sync           # 仅同步项目文件"
+}
+
 CI_MODE=false
 CD_MODE=false
 SYNC_ONLY=false
@@ -26,13 +37,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     *)
-      echo "Usage: $0 [--ci] [--cd] docker | swarm | sync"
-      echo "Examples:"
-      echo "  $0 docker         # 同步 + 构建镜像 + 部署容器 (Compose)"
-      echo "  $0 swarm          # 部署到 Docker Swarm (Stack)"
-      echo "  $0 --ci docker    # 仅同步 + 构建镜像"
-      echo "  $0 --cd docker    # 仅部署容器"
-      echo "  $0 sync           # 仅同步项目文件"
+      usage
       exit 1
       ;;
   esac
@@ -40,6 +45,8 @@ done
 
 if [ "$SYNC_ONLY" = false ] && [ -z "$TARGET" ]; then
   echo "Error: 请指定部署目标 (docker) 或使用 sync"
+  echo
+  usage
   exit 1
 fi
 
@@ -51,14 +58,19 @@ fi
 
 TAGS="$TARGET"
 if [ "$CI_MODE" = true ] && [ "$CD_MODE" = false ]; then
-  TAGS="$TAGS,ci"
-  echo "仅构建镜像 (docker,ci)..."
+  TAGS="$TAGS,sync,ci"
+  echo "仅同步 + 构建镜像 ($TARGET,sync,ci)..."
 elif [ "$CI_MODE" = false ] && [ "$CD_MODE" = true ]; then
   TAGS="$TAGS,cd"
-  echo "仅部署服务 (docker,cd)..."
+  echo "仅部署服务 ($TARGET,cd)..."
 else
-  TAGS="$TAGS"
-  echo "使用CI/CD流水线部署 ($TARGET)..."
+  TAGS="$TAGS,sync,ci,cd"
+  echo "完整CI/CD流水线部署 ($TARGET,sync,ci,cd)..."
 fi
 
-ansible-playbook -i "$ANSIBLE_DIR/inventory.yml" "$ANSIBLE_DIR/site.yml" --tags "$TAGS"
+EXTRA_ARGS=""
+if [ "$TARGET" = "docker" ]; then
+  EXTRA_ARGS="--skip-tags swarm"
+fi
+
+ansible-playbook -i "$ANSIBLE_DIR/inventory.yml" "$ANSIBLE_DIR/site.yml" --tags "$TAGS" $EXTRA_ARGS

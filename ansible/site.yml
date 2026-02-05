@@ -15,6 +15,7 @@
       - "--exclude=*/.git"
       - "--exclude=*.pyc"
       - "--include=docker/"
+      - "--include=finetuning/"
       - "--include=qwen_tts/"
       - "--include=docker/Dockerfile"
       - "--include=docker/compose.yaml"
@@ -24,6 +25,7 @@
       - "--include=app.py"
       - "--include=docker/**"
       - "--include=qwen_tts/**"
+      - "--include=finetuning/**"
       - "--exclude=*"
 
   tasks:

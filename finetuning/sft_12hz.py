@@ -44,6 +44,17 @@ def train():
     accelerator = Accelerator(gradient_accumulation_steps=4, mixed_precision="bf16", log_with="tensorboard")
 
     MODEL_PATH = args.init_model_path
+    
+    # 如果提供的是 Repo ID，将其解析为本地缓存路径，以便 shutil.copytree 正常工作
+    if not os.path.exists(MODEL_PATH):
+        try:
+            from huggingface_hub import snapshot_download
+            # local_files_only=True 确保不下载，仅查找本地已有的缓存
+            MODEL_PATH = snapshot_download(repo_id=MODEL_PATH, local_files_only=True)
+            accelerator.print(f"解析 Repo ID 到本地路径: {MODEL_PATH}")
+        except Exception as e:
+            # 如果本地确实没有，再抛出清晰的错误
+            raise FileNotFoundError(f"本地找不到模型目录或缓存: {args.init_model_path}。错误: {e}")
 
     qwen3tts = Qwen3TTSModel.from_pretrained(
         MODEL_PATH,

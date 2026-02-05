@@ -14,9 +14,6 @@ services:
       - /TTD-Data/qwen3_tts/hf_cache:/root/.cache/huggingface
     networks:
       - caddy
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
     deploy:
       mode: replicated
       replicas: 1

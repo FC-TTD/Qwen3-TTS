@@ -54,6 +54,7 @@ RUN set -eux; \
     /opt/appenv/bin/python -m pip install --no-deps "/tmp/${WHL}"; \
     rm -f "/tmp/${WHL}"
 
+COPY finetuning ./finetuning
 COPY qwen_tts ./qwen_tts
 COPY app.py ./
 
