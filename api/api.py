@@ -139,6 +139,7 @@ async def api_tts(
     speed: float = Form(1.0),
     expected_duration: Optional[float] = Form(None),
     postprocess: bool = Form(True),
+    lufs: float = Form(-23.0),
     temperature: float = Form(0.9),
     top_p: float = Form(1.0),
     top_k: int = Form(50),
@@ -230,7 +231,7 @@ async def api_tts(
 
         if postprocess:
             try:
-                wav_np, _ = _loudnorm(wav_np, sr)
+                wav_np, _ = _loudnorm(wav_np, sr, target_loudness=float(lufs))
                 wav_np = _eq(wav_np, sr)
             except Exception:
                 logger.exception("Post-processing failed")
