@@ -103,10 +103,10 @@ def train():
 
                 outputs = model.talker(inputs_embeds=input_embeddings[:, :-1, :], attention_mask=attention_mask[:, :-1], labels=codec_0_labels[:, 1:], output_hidden_states=True)
                 hidden_states = outputs.hidden_states[0][-1]
-                talker_hidden_states = hidden_states[codec_mask[:, 1:]]
+                talker_hidden_states = hidden_states[codec_mask[:, :-1]]
                 talker_codec_ids = codec_ids[codec_mask]
                 _, sub_talker_loss = model.talker.forward_sub_talker_finetune(talker_codec_ids, talker_hidden_states)
-                loss = outputs.loss + sub_talker_loss
+                loss = outputs.loss + 0.3 * sub_talker_loss
 
                 accelerator.backward(loss)
                 if accelerator.sync_gradients: accelerator.clip_grad_norm_(model.parameters(), 1.0)
