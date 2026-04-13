@@ -1,11 +1,12 @@
 version: "3.9"
 
 services:
-  api-1: &api_base
+  # Base 模型 - Voice Clone
+  api-base:
     image: qwen-tts/api:latest
     environment:
       - TZ=Asia/Shanghai
-      - NVIDIA_VISIBLE_DEVICES=2
+      - NVIDIA_VISIBLE_DEVICES=0
       - LC_ALL=C.UTF-8
       - PORT=8000
       - DEVICE=cuda
@@ -36,37 +37,78 @@ services:
         caddy.reverse_proxy.health_timeout: 5s
         caddy.reverse_proxy.health_status: 200
 
-  api-2:
-    <<: *api_base
+  # VoiceDesign 模型
+  api-design:
+    image: qwen-tts/api:latest
     environment:
       - TZ=Asia/Shanghai
       - NVIDIA_VISIBLE_DEVICES=1
       - LC_ALL=C.UTF-8
       - PORT=8000
       - DEVICE=cuda
-      - MODEL_ID=Qwen/Qwen3-TTS-12Hz-1.7B-Base
+      - MODEL_ID=Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign
+    volumes:
+      - /TTD-Data/qwen3_tts/hf_cache:/root/.cache/huggingface
+    networks:
+      - caddy
     deploy:
       mode: replicated
       replicas: 1
       placement:
         constraints:
           - node.hostname == ttd-worker
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+        delay: 10s
+      labels:
+        caddy: "http://qwen-api-design"
+        caddy.reverse_proxy: "{{upstreams 8000}}"
+        caddy.reverse_proxy.health_uri: "/health"
+        caddy.reverse_proxy.health_interval: 30s
+        caddy.reverse_proxy.health_timeout: 5s
+        caddy.reverse_proxy.health_status: 200
 
-  api-3:
-    <<: *api_base
+  # CustomVoice 模型
+  api-custom:
+    image: qwen-tts/api:latest
     environment:
       - TZ=Asia/Shanghai
-      - NVIDIA_VISIBLE_DEVICES=0
+      - NVIDIA_VISIBLE_DEVICES=2
       - LC_ALL=C.UTF-8
       - PORT=8000
       - DEVICE=cuda
-      - MODEL_ID=Qwen/Qwen3-TTS-12Hz-1.7B-Base
+      - MODEL_ID=Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
+    volumes:
+      - /TTD-Data/qwen3_tts/hf_cache:/root/.cache/huggingface
+    networks:
+      - caddy
     deploy:
       mode: replicated
       replicas: 1
       placement:
         constraints:
           - node.hostname == ttd-worker
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+        delay: 10s
+      labels:
+        caddy: "http://qwen-api-custom"
+        caddy.reverse_proxy: "{{upstreams 8000}}"
+        caddy.reverse_proxy.health_uri: "/health"
+        caddy.reverse_proxy.health_interval: 30s
+        caddy.reverse_proxy.health_timeout: 5s
+        caddy.reverse_proxy.health_status: 200
+
 networks:
   caddy:
     external: true
