@@ -1,9 +1,9 @@
 version: "3.9"
 
 services:
-  # Base 模型 - Voice Clone
-  api-base:
-    image: qwen-tts/api:latest
+  # Base 模型 - Voice Clone (GPU0)
+  base-1:
+    image: registry.ttd/qwen-tts/api:latest
     environment:
       - TZ=Asia/Shanghai
       - NVIDIA_VISIBLE_DEVICES=0
@@ -37,16 +37,16 @@ services:
         caddy.reverse_proxy.health_timeout: 5s
         caddy.reverse_proxy.health_status: 200
 
-  # VoiceDesign 模型
-  api-design:
-    image: qwen-tts/api:latest
+  # Base 模型 - Voice Clone (GPU1)
+  base-2:
+    image: registry.ttd/qwen-tts/api:latest
     environment:
       - TZ=Asia/Shanghai
       - NVIDIA_VISIBLE_DEVICES=1
       - LC_ALL=C.UTF-8
       - PORT=8000
       - DEVICE=cuda
-      - MODEL_ID=Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign
+      - MODEL_ID=Qwen/Qwen3-TTS-12Hz-1.7B-Base
     volumes:
       - /TTD-Data/qwen3_tts/hf_cache:/root/.cache/huggingface
     networks:
@@ -66,43 +66,7 @@ services:
         max_attempts: 3
         delay: 10s
       labels:
-        caddy: "http://qwen-api-design"
-        caddy.reverse_proxy: "{{upstreams 8000}}"
-        caddy.reverse_proxy.health_uri: "/health"
-        caddy.reverse_proxy.health_interval: 30s
-        caddy.reverse_proxy.health_timeout: 5s
-        caddy.reverse_proxy.health_status: 200
-
-  # CustomVoice 模型
-  api-custom:
-    image: qwen-tts/api:latest
-    environment:
-      - TZ=Asia/Shanghai
-      - NVIDIA_VISIBLE_DEVICES=2
-      - LC_ALL=C.UTF-8
-      - PORT=8000
-      - DEVICE=cuda
-      - MODEL_ID=Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
-    volumes:
-      - /TTD-Data/qwen3_tts/hf_cache:/root/.cache/huggingface
-    networks:
-      - caddy
-    deploy:
-      mode: replicated
-      replicas: 1
-      placement:
-        constraints:
-          - node.hostname == ttd-worker
-      update_config:
-        parallelism: 1
-        delay: 10s
-        order: stop-first
-      restart_policy:
-        condition: on-failure
-        max_attempts: 3
-        delay: 10s
-      labels:
-        caddy: "http://qwen-api-custom"
+        caddy: "http://qwen-api"
         caddy.reverse_proxy: "{{upstreams 8000}}"
         caddy.reverse_proxy.health_uri: "/health"
         caddy.reverse_proxy.health_interval: 30s

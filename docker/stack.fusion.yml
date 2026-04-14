@@ -1,0 +1,57 @@
+version: "3.9"
+
+services:
+  fusion:
+    image: registry.ttd/qwen-tts-fusion/fusion:latest
+    environment:
+      - TZ=Asia/Shanghai
+      - NVIDIA_VISIBLE_DEVICES=2
+      - PORT=8000
+      - BASE_API_URL=http://qwen-api
+      - FUSION_ENABLE_AUTO_ASR=false
+      - FUSION_ENABLE_FINETUNING=false
+      - FUSION_ENABLE_CHECKPOINT_SELECTOR=true
+    volumes:
+      - /TTD-Data/qwen3_tts/hf_cache:/root/.cache/huggingface
+      - /TTD/04_应用/qwen3/lora:/app/lora
+      - /TTD/04_应用/voxcpm/data:/app/data
+    networks:
+      - caddy
+      - qwen-internal
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == ttd-worker
+      labels:
+        caddy: "http://huolieniao"
+        caddy.reverse_proxy: "{{upstreams 8000}}"
+        caddy.reverse_proxy.health_uri: "/health"
+        caddy.reverse_proxy.health_interval: 30s
+        caddy.reverse_proxy.health_timeout: 5s
+        caddy.reverse_proxy.health_status: 200
+        caddy_1: "http://qwen-fusion"
+        caddy_1.reverse_proxy: "{{upstreams 8000}}"
+        caddy_1.reverse_proxy.health_uri: "/health"
+        caddy_1.reverse_proxy.health_interval: 30s
+        caddy_1.reverse_proxy.health_timeout: 5s
+        caddy_1.reverse_proxy.health_status: 200
+        caddy_2: "http://qianwen-api-design"
+        caddy_2.reverse_proxy: "{{upstreams 8000}}"
+        caddy_2.reverse_proxy.health_uri: "/health"
+        caddy_2.reverse_proxy.health_interval: 30s
+        caddy_2.reverse_proxy.health_timeout: 5s
+        caddy_2.reverse_proxy.health_status: 200
+        caddy_3: "http://qianwen-api-custom"
+        caddy_3.reverse_proxy: "{{upstreams 8000}}"
+        caddy_3.reverse_proxy.health_uri: "/health"
+        caddy_3.reverse_proxy.health_interval: 30s
+        caddy_3.reverse_proxy.health_timeout: 5s
+        caddy_3.reverse_proxy.health_status: 200
+
+networks:
+  caddy:
+    external: true
+  qwen-internal:
+    driver: overlay
