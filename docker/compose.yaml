@@ -4,14 +4,15 @@ services:
   qwen3-tts:
     build:
       context: ..
-      dockerfile: docker/Dockerfile
-    image: qwen3-tts:latest
+      dockerfile: docker/Dockerfile.fusion
+    image: qwen3-tts/fusion:latest
     container_name: qwen3-tts
     environment:
       - TZ=Asia/Shanghai
       - NVIDIA_VISIBLE_DEVICES=2
       - GRADIO_SERVER_NAME=0.0.0.0
       - GRADIO_SERVER_PORT=8000
+      - BASE_API_URL=http://host.docker.internal:8001
     volumes:
       - /TTD-Data/qwen3_tts/hf_cache:/root/.cache/huggingface
       - /TTD/04_应用/qwen3/lora:/app/lora

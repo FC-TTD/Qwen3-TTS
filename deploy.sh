@@ -6,7 +6,7 @@ usage() {
   echo "Usage: $0 [--ci] [--cd] docker | swarm | sync"
   echo "Examples:"
   echo "  $0 docker         # 同步 + 构建镜像 + 部署容器 (Compose)"
-  echo "  $0 swarm          # 部署到 Docker Swarm (Stack)"
+  echo "  $0 swarm          # 部署最终形态到 Docker Swarm (2x base + 1x fusion)"
   echo "  $0 --ci docker    # 仅同步 + 构建镜像"
   echo "  $0 --cd docker    # 仅部署容器"
   echo "  $0 sync           # 仅同步项目文件"
@@ -71,6 +71,11 @@ fi
 EXTRA_ARGS=""
 if [ "$TARGET" = "docker" ]; then
   EXTRA_ARGS="--skip-tags swarm"
+fi
+
+if [ "$TARGET" = "swarm" ]; then
+  echo "目标将同时发布 qwen-tts(base) 与 qwen-tts-fusion(fusion) 两个 Swarm Stack"
+  EXTRA_ARGS="--skip-tags docker"
 fi
 
 ansible-playbook -i "$ANSIBLE_DIR/inventory.yml" "$ANSIBLE_DIR/site.yml" --tags "$TAGS" $EXTRA_ARGS

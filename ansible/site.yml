@@ -93,3 +93,53 @@
         ci_build_host: "{{ build_host }}"
         ci_rsync_opts: "{{ rsync_opts }}"
         pt_stack_name: "{{ project_name }}"
+
+- name: 部署 Qwen3-TTS Fusion Swarm 服务
+  hosts: localhost
+  gather_facts: yes
+  vars:
+    project_name: "qwen-tts-fusion"
+    project_path: "{{ playbook_dir }}/.."
+    compose_file: "{{ project_path }}/docker/stack.fusion.yml"
+    dockerfile: "{{ project_path }}/docker/Dockerfile.fusion"
+    image_name: "fusion"
+    image_tag: "latest"
+    build_host: "ttd-nest"
+    ci_registry_url: "registry.ttd"
+
+    rsync_opts:
+      - "--exclude=*/__pycache__"
+      - "--exclude=*/.pytest_cache"
+      - "--exclude=*/.git"
+      - "--exclude=*.pyc"
+      - "--include=docker/"
+      - "--include=docker/Dockerfile.fusion"
+      - "--include=docker/stack.fusion.yml"
+      - "--include=finetuning/"
+      - "--include=finetuning/**"
+      - "--include=fusion/"
+      - "--include=fusion/**"
+      - "--include=qwen_tts/"
+      - "--include=qwen_tts/**"
+      - "--include=pyproject.toml"
+      - "--include=requirements.txt"
+      - "--include=README.md"
+      - "--include=LICENSE"
+      - "--include=app.py"
+      - "--exclude=*"
+
+  tags: [swarm, fusion]
+
+  roles:
+    - role: /workspace/z/ansible/roles/docker_ci_cd
+      vars:
+        ci_project_name: "{{ project_name }}"
+        ci_project_path: "{{ project_path }}"
+        ci_dockerfile_path: "{{ dockerfile }}"
+        ci_image_name: "{{ image_name }}"
+        ci_image_tag: "{{ image_tag }}"
+        ci_identity_provider: "probe"
+        ci_compose_file_path: "{{ compose_file }}"
+        ci_build_host: "{{ build_host }}"
+        ci_rsync_opts: "{{ rsync_opts }}"
+        pt_stack_name: "{{ project_name }}"

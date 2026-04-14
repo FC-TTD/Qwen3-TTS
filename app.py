@@ -2,9 +2,12 @@
 # Qwen3-TTS Gradio Demo with Multi-Model Support
 # Supports: Voice Design, Voice Clone (Base), TTS (CustomVoice), Fine-tuning
 import gc
+import json
 import os
+import re
 import time
-from typing import Any, Dict
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional
 
 import gradio as gr
 import numpy as np
@@ -23,6 +26,8 @@ MAX_MODELS = int(os.environ.get("QWEN_TTS_MAX_MODELS", "1"))
 
 # Model size options
 MODEL_SIZES = ["0.6B", "1.7B"]
+DEFAULT_CKPT_OPTION = "default"
+LORA_ROOT_DIR = Path("/app/lora")
 
 # Speaker and language choices for CustomVoice model
 SPEAKERS = [
@@ -113,6 +118,99 @@ def get_model(model_type: str, model_size: str):
     loaded_models[key] = wrapper
     model_last_used[key] = time.time()
     
+    return wrapper.get()
+
+
+def _list_custom_voice_checkpoints(root_dir: Path = LORA_ROOT_DIR) -> list[str]:
+    choices: list[str] = [DEFAULT_CKPT_OPTION]
+    if not root_dir.exists():
+        return choices
+
+    ckpts: list[Path] = []
+    for ckpt in root_dir.glob("*/checkpoint-epoch-*"):
+        if (ckpt / "model.safetensors").exists():
+            ckpts.append(ckpt.resolve())
+
+    def sort_key(p: Path) -> tuple[str, int]:
+        m = re.search(r"checkpoint-epoch-(\d+)$", p.name)
+        epoch = int(m.group(1)) if m else -1
+        return (p.parent.name.lower(), -epoch)
+
+    ckpts = sorted(ckpts, key=sort_key)
+    choices.extend(str(p) for p in ckpts)
+    return choices
+
+
+def _infer_speaker_from_checkpoint(checkpoint_path: str) -> Optional[str]:
+    if not checkpoint_path or checkpoint_path == DEFAULT_CKPT_OPTION:
+        return None
+
+    try:
+        ckpt = Path(checkpoint_path)
+        config_path = ckpt / "config.json"
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+            spk_map = config.get("talker_config", {}).get("spk_id", {})
+            if isinstance(spk_map, dict) and len(spk_map) == 1:
+                return next(iter(spk_map.keys()))
+    except Exception as e:
+        print(f"[app] infer speaker from config failed: {e}")
+
+    try:
+        ckpt = Path(checkpoint_path)
+        if ckpt.name.startswith("checkpoint-epoch-") and ckpt.parent.name:
+            return ckpt.parent.name
+    except Exception:
+        return None
+    return None
+
+
+def _normalize_speaker_name(speaker: str) -> str:
+    return speaker.strip().lower().replace(" ", "_")
+
+
+def get_custom_voice_model(model_size: str, checkpoint_path: str):
+    if not checkpoint_path or checkpoint_path == DEFAULT_CKPT_OPTION:
+        return get_model("CustomVoice", model_size)
+
+    global loaded_models, model_last_used
+    key = ("CustomVoiceCkpt", model_size, str(Path(checkpoint_path).resolve()))
+    if key in loaded_models:
+        model_last_used[key] = time.time()
+        return loaded_models[key].get()
+
+    cleanup_old_models(keep_key=key)
+    print(f"[app] Preparing checkpoint model loader: {key}")
+    print(f"[app] {_memory_info()}")
+
+    def loader():
+        from qwen_tts import Qwen3TTSModel
+
+        attn_impl = None
+        try:
+            import flash_attn  # noqa: F401
+
+            attn_impl = "flash_attention_2"
+        except Exception:
+            attn_impl = None
+
+        kwargs: Dict[str, Any] = dict(
+            device_map="cuda",
+            dtype=torch.bfloat16,
+            attn_implementation=attn_impl,
+        )
+
+        ckpt = str(Path(checkpoint_path).resolve())
+        print(f"[app] Loading model from checkpoint: {ckpt} ...")
+        model = Qwen3TTSModel.from_pretrained(ckpt, **kwargs)
+        print(f"[app] Model loaded: {key}")
+        print(f"[app] {_memory_info()}")
+        return model
+
+    wrapper = SmartModel(loader, timeout_seconds=7200)
+    loaded_models[key] = wrapper
+    model_last_used[key] = time.time()
     return wrapper.get()
 
 
@@ -209,7 +307,7 @@ def generate_voice_clone(ref_audio, ref_text, target_text, language, use_xvector
         return None, f"错误：{type(e).__name__}: {e}"
 
 
-def generate_custom_voice(text, language, speaker, instruct, model_size):
+def generate_custom_voice(text, language, speaker, instruct, model_size, checkpoint_path):
     """Generate speech using CustomVoice model."""
     if not text or not text.strip():
         return None, "错误：请输入文本。"
@@ -217,15 +315,17 @@ def generate_custom_voice(text, language, speaker, instruct, model_size):
         return None, "错误：请选择说话人。"
 
     try:
-        tts = get_model("CustomVoice", model_size)
+        tts = get_custom_voice_model(model_size=model_size, checkpoint_path=checkpoint_path)
+        normalized_speaker = _normalize_speaker_name(speaker)
         wavs, sr = tts.generate_custom_voice(
             text=text.strip(),
             language=language,
-            speaker=speaker.lower().replace(" ", "_"),
+            speaker=normalized_speaker,
             instruct=instruct.strip() if instruct else None,
             max_new_tokens=2048,
         )
-        return (sr, wavs[0]), "语音生成成功！"
+        source = "default" if checkpoint_path == DEFAULT_CKPT_OPTION else checkpoint_path
+        return (sr, wavs[0]), f"语音生成成功！speaker={normalized_speaker}, source={source}"
     except Exception as e:
         return None, f"错误：{type(e).__name__}: {e}"
 
@@ -235,8 +335,29 @@ def get_memory_info():
     return _memory_info()
 
 
-def build_ui():
-    """Build Gradio UI"""
+def build_ui(
+    generate_voice_design_fn: Optional[Callable[..., tuple]] = None,
+    generate_voice_clone_fn: Optional[Callable[..., tuple]] = None,
+    generate_custom_voice_fn: Optional[Callable[..., tuple]] = None,
+    auto_transcribe_fn: Optional[Callable[..., str]] = None,
+    get_memory_info_fn: Optional[Callable[[], str]] = None,
+    list_checkpoints_fn: Optional[Callable[[], list[str]]] = None,
+    infer_speaker_fn: Optional[Callable[[str], Optional[str]]] = None,
+    custom_voice_model_sizes: Optional[list[str]] = None,
+    enable_finetuning: bool = True,
+    enable_memory_info: bool = True,
+    enable_auto_asr: bool = True,
+    enable_checkpoint_selector: bool = True,
+):
+    """Build Gradio UI."""
+    generate_voice_design_cb = generate_voice_design_fn or generate_voice_design
+    generate_voice_clone_cb = generate_voice_clone_fn or generate_voice_clone
+    generate_custom_voice_cb = generate_custom_voice_fn or generate_custom_voice
+    get_memory_info_cb = get_memory_info_fn or get_memory_info
+    list_checkpoints_cb = list_checkpoints_fn or _list_custom_voice_checkpoints
+    infer_speaker_cb = infer_speaker_fn or _infer_speaker_from_checkpoint
+    custom_voice_model_size_choices = custom_voice_model_sizes or MODEL_SIZES
+
     with gr.Blocks(title="Qwen3-TTS Demo") as demo:
         gr.Markdown(
             """
@@ -320,12 +441,6 @@ def build_ui():
                                 value="Auto",
                                 interactive=True,
                             )
-                            clone_model_size = gr.Dropdown(
-                                label="模型大小",
-                                choices=MODEL_SIZES,
-                                value="1.7B",
-                                interactive=True,
-                            )
                         clone_btn = gr.Button("克隆并生成", variant="primary")
 
                 with gr.Row():
@@ -335,6 +450,16 @@ def build_ui():
             def auto_transcribe_ref_audio(audio_data):
                 """当参考音频变化时自动转录文本"""
                 if audio_data is None:
+                    return ""
+
+                if auto_transcribe_fn is not None:
+                    try:
+                        return auto_transcribe_fn(audio_data) or ""
+                    except Exception as e:
+                        print(f"ASR 转录失败: {e}")
+                        return ""
+
+                if not enable_auto_asr:
                     return ""
                 
                 try:
@@ -370,21 +495,22 @@ def build_ui():
                     return ""
 
             clone_btn.click(
-                generate_voice_clone,
-                inputs=[clone_ref_audio, clone_ref_text, clone_target_text, clone_language, clone_xvector, clone_model_size],
+                generate_voice_clone_cb,
+                inputs=[clone_ref_audio, clone_ref_text, clone_target_text, clone_language, clone_xvector],
                 outputs=[clone_audio_out, clone_status],
             )
             
-            # 当参考音频变化时自动转录
-            clone_ref_audio.change(
-                auto_transcribe_ref_audio,
-                inputs=[clone_ref_audio],
-                outputs=[clone_ref_text],
-            )
+            if enable_auto_asr or auto_transcribe_fn is not None:
+                clone_ref_audio.change(
+                    auto_transcribe_ref_audio,
+                    inputs=[clone_ref_audio],
+                    outputs=[clone_ref_text],
+                )
 
             # Tab 3: TTS (CustomVoice)
             with gr.Tab("文本转语音"):
                 gr.Markdown("### 使用预设说话人进行文本转语音")
+                initial_ckpts = list_checkpoints_cb() if enable_checkpoint_selector else [DEFAULT_CKPT_OPTION]
                 with gr.Row():
                     with gr.Column(scale=2):
                         tts_text = gr.Textbox(
@@ -405,6 +531,7 @@ def build_ui():
                                 choices=SPEAKERS,
                                 value="Ryan",
                                 interactive=True,
+                                allow_custom_value=True,
                             )
                         with gr.Row():
                             tts_instruct = gr.Textbox(
@@ -414,9 +541,27 @@ def build_ui():
                             )
                             tts_model_size = gr.Dropdown(
                                 label="模型大小",
-                                choices=MODEL_SIZES,
-                                value="1.7B",
+                                choices=custom_voice_model_size_choices,
+                                value=custom_voice_model_size_choices[0],
                                 interactive=True,
+                            )
+                        if enable_checkpoint_selector:
+                            with gr.Row():
+                                tts_checkpoint = gr.Dropdown(
+                                    label="Checkpoint（default 或 /app/lora 扫描结果）",
+                                    choices=initial_ckpts,
+                                    value=DEFAULT_CKPT_OPTION,
+                                    interactive=True,
+                                    allow_custom_value=True,
+                                )
+                                tts_refresh_ckpt = gr.Button("刷新 CKP 列表")
+                        else:
+                            tts_checkpoint = gr.Dropdown(
+                                label="Checkpoint",
+                                choices=initial_ckpts,
+                                value=DEFAULT_CKPT_OPTION,
+                                interactive=False,
+                                visible=False,
                             )
                         tts_btn = gr.Button("生成语音", variant="primary")
 
@@ -425,27 +570,60 @@ def build_ui():
                         tts_status = gr.Textbox(label="状态", lines=2, interactive=False)
 
                 tts_btn.click(
-                    generate_custom_voice,
-                    inputs=[tts_text, tts_language, tts_speaker, tts_instruct, tts_model_size],
+                    generate_custom_voice_cb,
+                    inputs=[tts_text, tts_language, tts_speaker, tts_instruct, tts_model_size, tts_checkpoint],
                     outputs=[tts_audio_out, tts_status],
                 )
 
-            # Tab 4: Fine-tuning (entry point)
-            build_finetuning_tab(cleanup_models=cleanup_old_models)
+                def _refresh_tts_ckpts(current_ckpt: str, current_speaker: str):
+                    choices = list_checkpoints_cb()
+                    value = current_ckpt if current_ckpt in choices else DEFAULT_CKPT_OPTION
+                    inferred = infer_speaker_cb(value)
+                    speaker = inferred if inferred else current_speaker
+                    status = (
+                        f"已刷新 CKP，共 {len(choices) - 1} 个。"
+                        if value == DEFAULT_CKPT_OPTION
+                        else f"已刷新 CKP，选中：{value}"
+                    )
+                    return gr.Dropdown(choices=choices, value=value), speaker, status
 
-        # 添加显存监控
-        with gr.Row():
-            memory_info = gr.Textbox(
-                label="显存状态",
-                value=get_memory_info(),
-                interactive=False
+                def _on_tts_checkpoint_change(checkpoint_path: str, current_speaker: str):
+                    inferred = infer_speaker_cb(checkpoint_path)
+                    if inferred:
+                        return inferred, f"自动绑定 speaker: {inferred}"
+                    if checkpoint_path == DEFAULT_CKPT_OPTION:
+                        return current_speaker, "已切换到 default 模型。"
+                    return current_speaker, "未能自动推断 speaker，请手动确认。"
+
+                if enable_checkpoint_selector:
+                    tts_refresh_ckpt.click(
+                        _refresh_tts_ckpts,
+                        inputs=[tts_checkpoint, tts_speaker],
+                        outputs=[tts_checkpoint, tts_speaker, tts_status],
+                    )
+                    tts_checkpoint.change(
+                        _on_tts_checkpoint_change,
+                        inputs=[tts_checkpoint, tts_speaker],
+                        outputs=[tts_speaker, tts_status],
+                    )
+
+            if enable_finetuning:
+                # Tab 4: Fine-tuning (entry point)
+                build_finetuning_tab(cleanup_models=cleanup_old_models)
+
+        if enable_memory_info:
+            with gr.Row():
+                memory_info = gr.Textbox(
+                    label="显存状态",
+                    value=get_memory_info_cb(),
+                    interactive=False
+                )
+                refresh_btn = gr.Button("刷新显存信息")
+
+            refresh_btn.click(
+                get_memory_info_cb,
+                outputs=[memory_info]
             )
-            refresh_btn = gr.Button("刷新显存信息")
-        
-        refresh_btn.click(
-            get_memory_info,
-            outputs=[memory_info]
-        )
 
         gr.Markdown(
             """
