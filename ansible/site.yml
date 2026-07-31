@@ -82,7 +82,7 @@
   tags: [swarm]
 
   roles:
-    - role: /workspace/z/ansible/roles/docker_ci_cd
+    - role: docker_ci_cd
       vars:
         ci_project_name: "{{ project_name }}"
         ci_project_path: "{{ project_path }}"
@@ -131,7 +131,7 @@
   tags: [swarm, fusion]
 
   roles:
-    - role: /workspace/z/ansible/roles/docker_ci_cd
+    - role: docker_ci_cd
       vars:
         ci_project_name: "{{ project_name }}"
         ci_project_path: "{{ project_path }}"
