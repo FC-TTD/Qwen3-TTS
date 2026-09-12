@@ -41,9 +41,17 @@ class RolloutTest(unittest.TestCase):
         config={'apps':{'http':{'servers':{'s':{'routes':[
             {'match':[{'host':[host]}],'handle':[{'handler':'reverse_proxy','upstreams':[{'dial':'10.0.3.1:8000'},{'dial':'10.0.3.2:8000'}]}]} for host in module.HOSTS
         ]}}}}}
-        with patch.object(module,'by_name',return_value={'Endpoint':{'VirtualIPs':[{'Addr':'10.0.3.1/24'}]}}), patch.object(module.urllib.request,'urlopen',return_value=BytesIO(json.dumps(config).encode())):
+        with patch.object(module,'by_name',return_value={'ID':'service-id','Endpoint':{'VirtualIPs':[{'Addr':'10.0.3.1/24'}]}}), patch.object(module,'api',return_value=[]), patch.object(module.urllib.request,'urlopen',return_value=BytesIO(json.dumps(config).encode())):
             with self.assertRaises(AssertionError):
                 module.verify_routes()
+
+    def test_caddy_may_route_directly_to_this_services_running_task(self):
+        config={'apps':{'http':{'servers':{'s':{'routes':[
+            {'match':[{'host':[host]}],'handle':[{'handler':'reverse_proxy','upstreams':[{'dial':'10.0.3.2:8000'}]}]} for host in module.HOSTS
+        ]}}}}}
+        task={'ServiceID':'service-id','Status':{'State':'running'},'NetworksAttachments':[{'Addresses':['10.0.3.2/24']}]}
+        with patch.object(module,'by_name',return_value={'ID':'service-id','Endpoint':{'VirtualIPs':[{'Addr':'10.0.3.1/24'}]}}), patch.object(module,'api',return_value=[task]), patch.object(module.urllib.request,'urlopen',return_value=BytesIO(json.dumps(config).encode())):
+            module.verify_routes()
 
 
 if __name__ == '__main__':

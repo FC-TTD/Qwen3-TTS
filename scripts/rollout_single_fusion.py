@@ -10,6 +10,7 @@ import shlex
 import subprocess
 import time
 import urllib.request
+import urllib.parse
 import yaml
 
 NAME = 'qwen-tts-fusion-single'
@@ -124,6 +125,12 @@ def verify_routes():
     service=by_name(NAME+'_fusion')
     addresses={item['Addr'].split('/')[0]+':8000' for item in service.get('Endpoint',{}).get('VirtualIPs',[])}
     addresses.update({NAME+'_fusion:8000',NAME+'_fusion.:8000'})
+    filters=urllib.parse.quote(json.dumps({'service':[service['ID']],'desired-state':['running']}))
+    tasks=api(f'/api/endpoints/{ENDPOINT}/docker/tasks?filters={filters}')
+    for task in tasks:
+        if task.get('ServiceID')==service['ID'] and task.get('Status',{}).get('State')=='running':
+            for network in task.get('NetworksAttachments',[]):
+                addresses.update(address.split('/')[0]+':8000' for address in network.get('Addresses',[]))
     with urllib.request.urlopen('http://ttd-server/caddy_api/config/',timeout=15) as response:
         config=json.load(response)
     found={name:set() for name in HOSTS}
@@ -160,6 +167,14 @@ def promote(args,root,record):
         service['deploy']['labels']=no_caddy(service['deploy'].get('labels',{}))
     record['base_unrouted']=update_stack(record['base'],yaml.safe_dump(base,sort_keys=False))
     record['phase']='old_base_unrouted';snapshot(root/'state.json',record)
+    finish_promotion(root,record)
+
+
+def finish_promotion(root,record):
+    assert record['phase']=='old_base_unrouted'
+    assert signature(stack_snapshot(record['new_id']))==signature(record['candidate'])
+    assert signature(stack_snapshot(BASE_ID))==signature(record['base_unrouted'])
+    assert signature(by_name(OLD_NAME+'_fusion')['Spec'])==signature(record['old_unrouted']['Spec'])
     for attempt in range(30):
         try:
             verify_routes()
@@ -225,12 +240,14 @@ def retire(args,root,record):
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('phase',choices=['candidate','promote','retire']);p.add_argument('--state',required=True);p.add_argument('--commit');p.add_argument('--image');p.add_argument('--evidence');args=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('phase',choices=['candidate','promote','verify-promoted','retire']);p.add_argument('--state',required=True);p.add_argument('--commit');p.add_argument('--image');p.add_argument('--evidence');args=p.parse_args()
     root=Path(args.state);root.mkdir(parents=True,exist_ok=True);root.chmod(0o700)
     if args.phase=='candidate':stage_candidate(args,root)
     else:
         record=json.loads((root/'state.json').read_text())
-        try:(promote if args.phase=='promote' else retire)(args,root,record)
+        try:
+            if args.phase=='verify-promoted':finish_promotion(root,record)
+            else:(promote if args.phase=='promote' else retire)(args,root,record)
         except Exception as error:
             record['failure_type']=type(error).__name__;snapshot(root/'state.json',record);raise
 
