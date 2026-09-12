@@ -59,3 +59,19 @@ these CPU tests are fakes; they do not replace real speech/GPU acceptance.
 The root legacy integration tests call an already running HTTP service and are
 not run against production while preparing this change. `scripts/smoke_fusion.py`
 is the explicit real-service acceptance entrypoint.
+
+## Production acceptance — 2026-09-12
+
+Completed: Portainer stack229 on endpoint4 owns `qwen-tts-fusion-single`, one `fusion` replica on worker GPU2. Old unmanaged `qwen-tts-fusion` and managed Base stack202 have been removed after route verification and draining. The final five hostnames all resolve through the new service; the old Base is not required for cloning.
+
+- Application source: `0df66ec9453991424941206ee6b5d3609e0bf7f9`.
+- Immutable image: `registry.ttd/qwen-tts-fusion/fusion:h-034958253933`, registry digest `sha256:a2ee049b162092c34c1d39218a6adb539fc2a2af541be5504fdb36a30b49a9de`.
+- Build snapshot: `/tmp/qwen-fusion-source.EDmrrj/source`, unchanged after CI; operations helper later corrected Caddy task-IP verification in deployment-only commit `d18940b`, without rebuilding or changing inference code.
+- Private source/spec/Portainer rollback and phase evidence: `/tmp/qwen-single-rollout/live/state.json`; original Base rollback request `/tmp/qwen-single-rollout/rollback-base.json`; reviewed old fusion source with its previous fixed digest `/tmp/qwen-single-rollout/rollback-fusion.yml`.
+- Candidate and production API/UI smoke both passed Clone, Design and CustomVoice, 48kHz WAV/nonempty/nonsilent checks, slow/fast ordering, expected-duration tolerance, invalid parameter errors, and explicit unload. Evidence is bound to the actual backend commit/image, URL, phase and time.
+- Production measurements: Clone6.24s, slow8.86s, fast4.37s; expected-duration target5.304s yielded5.736s (within the existing smoke's15% tolerance). Design5.92s and CustomVoice6.88s. These are generated output durations, not latency promises.
+- After Base deletion, a new actual `http://qwen-api/api/tts` clone request returned 407084-byte, 48kHz WAV lasting4.24s; explicit unload then returned `loaded_model=null`. This verifies cloning without the former Base service.
+- GPU sampling attributed the new process's observed peak around5GiB during the representative test batch; samples and other callers are not a maximum-capacity guarantee. The worker's existing proprietary NVIDIA570.153.02 driver was retained; `dkms` tooling was not available in this baseline, and driver installation was outside the authorized model-only change. CUDA inference and unload were verified; no driver changes were made.
+- Core runtime28 CPU tests plus6 rollout tests passed. First rollout verification correctly stopped before retirement when it only recognized service VIPs but Caddy used that service's actual running taskIP; the helper now verifies both against Docker identity, and the promotion check was resumed with unchanged service definitions.
+
+No model weights, LoRA, reference files, cache directories or unrelated service were deleted. Source and reports are committed locally, not pushed. The separate stage/MMAudio work was handed back to the user and is not covered by this success verdict.
