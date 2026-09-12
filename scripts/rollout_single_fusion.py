@@ -77,7 +77,7 @@ def stage_candidate(args,root):
     model=desired['services']['fusion'];model['image']=args.image
     assert model['deploy']['replicas']==1
     assert model['deploy']['placement']['constraints']==['node.hostname == ttd-worker']
-    assert 'NVIDIA_VISIBLE_DEVICES=GPU-aee06b60-5da4-ae60-2775-88f094ffeab7' in model['environment']
+    assert 'NVIDIA_VISIBLE_DEVICES=2' in model['environment']
     model['environment'] += [f'APP_GIT_COMMIT={args.commit}',f'APP_IMAGE={args.image}']
     candidate=copy.deepcopy(desired)
     candidate['services']['fusion']['deploy']['labels']={

@@ -5,7 +5,7 @@ services:
     image: registry.ttd/qwen-tts-fusion/fusion:h-build-required
     environment:
       - TZ=Asia/Shanghai
-      - NVIDIA_VISIBLE_DEVICES=GPU-aee06b60-5da4-ae60-2775-88f094ffeab7
+      - NVIDIA_VISIBLE_DEVICES=2
       - PORT=8000
       - FUSION_IDLE_SECONDS=7200
       - FUSION_MAX_PENDING=8
