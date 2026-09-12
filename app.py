@@ -404,7 +404,7 @@ def build_ui(
                         design_status = gr.Textbox(label="状态", lines=2, interactive=False)
 
                 design_btn.click(
-                    generate_voice_design,
+                    generate_voice_design_cb,
                     inputs=[design_text, design_language, design_instruct],
                     outputs=[design_audio_out, design_status],
                 )
