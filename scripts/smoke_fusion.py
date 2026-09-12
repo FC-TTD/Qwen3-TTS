@@ -18,11 +18,19 @@ def main():
     parser.add_argument("--url", default="http://qwen-fusion")
     parser.add_argument("--output", required=True)
     parser.add_argument("--gradio", action="store_true")
+    parser.add_argument("--expected-commit", required=True)
+    parser.add_argument("--expected-image", required=True)
+    parser.add_argument("--phase", choices=["candidate", "production"], required=True)
     args = parser.parse_args()
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     session = requests.Session()
     records = []
+    started_at = time.time()
+    identity = session.get(args.url + "/health/backends", timeout=15)
+    identity.raise_for_status()
+    deployment = identity.json()["deployment"]
+    assert deployment == {"source_commit": args.expected_commit, "image": args.expected_image}, deployment
 
     def generate(name, mode, **overrides):
         data = dict(text=TEXT, language="English", mode=mode, postprocess="true",
@@ -77,7 +85,11 @@ def main():
     response = session.post(args.url + "/api/unload", timeout=900)
     response.raise_for_status()
     assert response.json()["loaded_model"] is None
-    (output / "evidence.json").write_text(json.dumps(records, indent=2))
+    (output / "evidence.json").write_text(json.dumps({
+        "records": records, "target_url": args.url.rstrip('/'), "source_commit": args.expected_commit,
+        "image": args.expected_image, "phase": args.phase, "started_at": started_at,
+        "completed_at": time.time(), "gradio": args.gradio, "status": "success",
+    }, indent=2))
 
 
 if __name__ == "__main__":

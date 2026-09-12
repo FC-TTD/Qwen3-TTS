@@ -32,42 +32,21 @@ has been removed; redeploying this source cannot recreate it.
 
 ## Deployment and cutover
 
-1. Record rollback from the prior committed project source and live resolved
-   image digests; preserve HF cache, LoRA and the shared voxcpm-named data mount.
-   Do not generate desired state by copying inspected containers.
-2. Commit the reviewed participating inputs. Use the registered TTD launcher
-   with `--exec ./deploy.sh --ci swarm`. The project wrapper creates a detached,
-   read-only clone of the recorded commit and verifies it remains unchanged.
-   `docker_ci_cd` builds on nest and publishes only an immutable `h-*` image;
-   `h-build-required` in the template is intentionally nondeployable and must
-   be replaced by the build's resolved identity. Never publish/deploy `latest`.
-3. Existing `qwen-tts-fusion` is a Swarm stack without Portainer ownership.
-   Create the final managed stack `qwen-tts-fusion-single` on endpoint4 using
-   a validation rendering of this source with only `qwen-fusion-candidate`
-   labels. This avoids same-name HTTP409 without deleting the legacy service.
-   Keep the Base stack (Portainer id202) during fusion preparation.
-4. Before route ownership cutover, deploy the new image to an isolated smoke
-   service using the same committed service definition with temporary identity
-   and no production labels; or use a coordinated fusion maintenance window.
-   Verify the new service's three modes and UI without depending on Base.
-5. Switch `qwen-api` and the existing fusion aliases to the verified local
-   runtime. Caddy source labels must have one final owner. The existing Base
-   labels may temporarily produce a mixed clone upstream, so verify effective
-   config after removing them; do not claim completion from labels alone.
-6. Drain old Base requests, then remove old Base services and Portainer stack202.
-   Final desired/management/runtime state: one managed `qwen-tts-fusion-single` stack,
-   one replica, no `qwen-tts_base-*`, correct GPU UUID, five preserved hostnames.
-7. Run `scripts/smoke_fusion.py --url http://qwen-fusion --output /tmp/qwen-smoke
-   --gradio` (one command; line break shown only for readability), verify saved
-   WAVs, slow/fast ordering and expected duration. Capture GPU memory before
-   loading, at peak and after `/api/unload`, with PID ownership and CUDA trace.
-   Also test `qwen-api` via the real consuming application/model gateway.
+The final managed stack name is `qwen-tts-fusion-single`. The public/internal hostnames remain unchanged. Keeping a new internal stack name allows the verified candidate to become the final instance without rebuilding it again. Portainer2.33.3 cannot adopt the old unmanaged `qwen-tts-fusion` namespace by a same-name POST; it returns409 before deployment.
 
-`QWEN_FUSION_IMAGE=registry.ttd/qwen-tts-fusion/fusion:h-<CI-hash> ./deploy.sh --cd swarm`
-requires an explicit immutable image from that same committed snapshot's CI result.
-The wrapper rejects missing or mutable image references. The wrapper does not automatically remove the old Base stack or
-silently adopt unmanaged services. These are explicit cutover actions after
-successful smoke. Existing worker GPU0 Base is retained until this point.
+Build with the committed read-only source wrapper through the registered TTD launcher (`--exec ./deploy.sh --ci swarm`). Publish only the resulting content-addressed image, then use its registry digest. The template's `h-build-required` must never be deployed.
+
+The project-owned `scripts/rollout_single_fusion.py` has three explicit phases:
+
+1. `candidate --state <private-dir> --commit <build-commit> --image <registry-digest>` creates a Portainer-managed stack from the committed service definition. It initially declares only the temporary internal `qwen-fusion-candidate` validation hostname. Old fusion and Base remain untouched; all rollback specs, management files and environments are stored privately.
+2. Run `scripts/smoke_fusion.py --url http://qwen-fusion-candidate --output <candidate-evidence> --gradio --phase candidate --expected-commit <build-commit> --expected-image <registry-digest>`. It exercises API/UI Clone, Design and CustomVoice, speed/expected duration, invalid inputs and unload. Evidence includes the actual backend deployment identity and execution time.
+3. `promote --state <private-dir> --evidence <candidate-evidence>` publishes the five final aliases, removes discovery labels from the old unmanaged fusion via a version-checked Docker service update, and updates Base202 labels through Portainer. Runtime templates and old model processes remain available. Verify the effective Caddy upstream sets contain only the new fusion, not a mixture which happens to answer one health request.
+4. Run the same complete smoke against `http://qwen-fusion`, with `--phase production` and a new evidence directory. Its start time must follow promotion and its commit/image must match the live deployment.
+5. `retire --state <private-dir> --evidence <production-evidence>` drains old HTTP connections, rechecks each management/spec/namespace immediately before deletion, deletes the old external fusion stack and Base202 through Portainer, and verifies that only one managed fusion remains with all five aliases.
+
+The new backend reports deployment identity in `/health/backends`. Before the candidate exists, rollback is the unchanged old deployment. After label cutover, restore saved old discovery labels and Base's complete file plus environment through their respective management paths if validation fails. Do not delete the old models until production smoke passes. After retirement, restore the old fixed image and reviewed source stack through Portainer if needed; preserved caches, LoRA and reference data remain shared. Never infer a successful adoption from409 or blindly retry a partially successful create.
+
+The five aliases are `qwen-api`, `qwen-fusion`, `huolieniao`, `qianwen-api-design`, and `qianwen-api-custom`. No standalone Base is part of the final desired state. Image build metadata and the operation script commit are recorded separately when only rollout tooling changes after an immutable image build.
 
 ## Validation
 

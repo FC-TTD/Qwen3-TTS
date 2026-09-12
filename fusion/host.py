@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from io import BytesIO
 import logging
+import os
 from typing import Optional
 
 import gradio as gr
@@ -42,7 +43,10 @@ setup_cuda_health(app, path="/health", ready_predicate=lambda: runtime.ready,
 
 @app.get("/health/backends")
 async def backend_health():
-    return {"local": runtime.status()}
+    return {"local": runtime.status(), "deployment": {
+        "source_commit": os.environ.get("APP_GIT_COMMIT", ""),
+        "image": os.environ.get("APP_IMAGE", ""),
+    }}
 
 
 @app.post("/api/unload")
