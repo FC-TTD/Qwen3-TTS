@@ -49,6 +49,51 @@
         chdir: "{{ remote_project_path }}"
       tags: [docker, cd]
 
+- name: 部署 Qwen3-TTS API Swarm 服务
+  hosts: localhost
+  gather_facts: yes
+  vars:
+    project_name: "qwen-tts"
+    project_path: "{{ playbook_dir }}/.."
+    compose_file: "{{ project_path }}/docker/stack.yml"
+    dockerfile: "{{ project_path }}/docker/Dockerfile.api"
+    image_name: "api"
+    image_tag: "latest"
+    build_host: "ttd-nest"  # 使用 nest 节点构建镜像
+    ci_registry_url: "registry.ttd"
+
+    rsync_opts:
+      - "--exclude=*/__pycache__"
+      - "--exclude=*/.pytest_cache"
+      - "--exclude=*/.git"
+      - "--exclude=*.pyc"
+      - "--include=docker/"
+      - "--include=docker/Dockerfile.api"
+      - "--include=api/"
+      - "--include=api/**"
+      - "--include=qwen_tts/"
+      - "--include=qwen_tts/**"
+      - "--include=pyproject.toml"
+      - "--include=requirements.txt"
+      - "--include=README.md"
+      - "--include=LICENSE"
+      - "--exclude=*"
+
+  tags: [swarm]
+
+  roles:
+    - role: docker_ci_cd
+      vars:
+        ci_project_name: "{{ project_name }}"
+        ci_project_path: "{{ project_path }}"
+        ci_dockerfile_path: "{{ dockerfile }}"
+        ci_image_name: "{{ image_name }}"
+        ci_image_tag: "{{ image_tag }}"
+        ci_compose_file_path: "{{ compose_file }}"
+        ci_build_host: "{{ build_host }}"
+        ci_rsync_opts: "{{ rsync_opts }}"
+        pt_stack_name: "{{ project_name }}"
+
 - name: 部署 Qwen3-TTS Fusion Swarm 服务
   hosts: localhost
   gather_facts: yes
@@ -58,13 +103,7 @@
     compose_file: "{{ project_path }}/docker/stack.fusion.yml"
     dockerfile: "{{ project_path }}/docker/Dockerfile.fusion"
     image_name: "fusion"
-    image_tag: "h-build-required"
-    ci_buildkit_host: "ttd-nest"
-    ci_buildx_builder_name: "qwen-fusion-consolidation"
-    ci_probe_work_root: "/tmp/qwen-fusion-ci-20260912"
-    ci_probe_generator_local_bin: "/tmp/qwen-fusion-ci-20260912/probe-generator"
-    ci_publish_label_tag: false
-    pt_force_recreate_stack: false
+    image_tag: "latest"
     build_host: "ttd-nest"
     ci_registry_url: "registry.ttd"
 
@@ -103,4 +142,4 @@
         ci_compose_file_path: "{{ compose_file }}"
         ci_build_host: "{{ build_host }}"
         ci_rsync_opts: "{{ rsync_opts }}"
-        pt_stack_name: "qwen-tts-fusion-single"
+        pt_stack_name: "{{ project_name }}"

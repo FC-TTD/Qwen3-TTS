@@ -1,67 +1,74 @@
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
-from io import BytesIO
 import logging
-import os
+from io import BytesIO
 from typing import Optional
 
 import gradio as gr
-import soundfile as sf
-import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
-from ttd_fastapi_utils import setup_cuda_health
 
-from fusion.audio import encode_wav
+from fusion.base_proxy import BaseProxy
 from fusion.config import settings
-from fusion.local_runtime import runtime
-from fusion.runtime import LANGUAGES, SPEAKERS
+from fusion import local_runtime
 from fusion.webui import build_ui
+import app as demo_app
 
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("qwen-fusion")
+
+proxy = BaseProxy(settings.base_api_url, settings.request_timeout_seconds)
 
 
 @asynccontextmanager
-async def lifespan(app):
-    runtime.start()
+async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        await run_in_threadpool(runtime.shutdown)
+        local_runtime.shutdown()
 
 
-app = FastAPI(title="Qwen3-TTS Fusion", version="1.1.0",
-              description="Self-contained Base, VoiceDesign and CustomVoice API + WebUI",
-              lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
-                   allow_methods=["*"], allow_headers=["*"])
-# The CUDA monitor also reports device failures after lazy model loading.
-setup_cuda_health(app, path="/health", ready_predicate=lambda: runtime.ready,
-                  enable_default_home=False)
+app = FastAPI(
+    title="Qwen3-TTS Fusion",
+    description="Unified Gradio and API host for Base + Design + CustomVoice",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health")
+async def health():
+    base_status = await proxy.health()
+    return {
+        "ok": True,
+        "base": base_status,
+    }
 
 
 @app.get("/health/backends")
 async def backend_health():
-    return {"local": runtime.status(), "deployment": {
-        "source_commit": os.environ.get("APP_GIT_COMMIT", ""),
-        "image": os.environ.get("APP_IMAGE", ""),
-    }}
-
-
-@app.post("/api/unload")
-async def unload():
-    return await run_in_threadpool(runtime.unload)
+    return {"base": await proxy.health()}
 
 
 @app.get("/api/speakers")
-async def speakers():
-    return {"speakers": SPEAKERS}
+async def get_speakers():
+    return {"speakers": demo_app.SPEAKERS}
 
 
 @app.get("/languages")
-async def languages():
-    return {"languages": LANGUAGES}
+async def get_languages():
+    return {"languages": [lang.lower() for lang in demo_app.LANGUAGES]}
 
 
 @app.post("/api/tts")
@@ -87,36 +94,47 @@ async def api_tts(
     repetition_penalty: float = Form(1.05),
     max_new_tokens: int = Form(2048),
 ):
-    params = dict(text=text, language=language, mode=mode, ref_text=ref_text,
-                  x_vector_only_mode=x_vector_only_mode, instruct=instruct, speaker=speaker,
-                  model_size=model_size, checkpoint_path=checkpoint_path,
-                  remove_silence=remove_silence, speed=speed, expected_duration=expected_duration,
-                  postprocess=postprocess, lufs=lufs, temperature=temperature, top_p=top_p,
-                  top_k=top_k, repetition_penalty=repetition_penalty, max_new_tokens=max_new_tokens)
-    try:
-        audio = None
-        if mode == "voice_clone" and ref_audio is not None:
-            content = await ref_audio.read()
-            try:
-                wav, sr = await run_in_threadpool(sf.read, BytesIO(content), dtype="float32")
-                if wav.size == 0 or not np.isfinite(wav).all():
-                    raise ValueError("empty or non-finite reference audio")
-                if wav.ndim > 1:
-                    wav = wav.mean(axis=1)
-                audio = (wav, sr)
-            except Exception as exc:
-                raise HTTPException(400, "ref_audio must be a readable, nonempty audio file") from exc
-        result = await run_in_threadpool(runtime.synthesize, ref_audio=audio, **params)
-        content = await run_in_threadpool(encode_wav, result)
-        return Response(content=content, media_type="audio/wav")
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Fusion synthesis failed")
-        raise HTTPException(500, "Internal server error") from exc
+    if mode == "voice_clone":
+        return await proxy.synthesize(
+            text=text,
+            language=language,
+            ref_audio=ref_audio,
+            ref_text=ref_text,
+            x_vector_only_mode=x_vector_only_mode,
+            remove_silence=remove_silence,
+            speed=speed,
+            expected_duration=expected_duration,
+            postprocess=postprocess,
+            lufs=lufs,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            repetition_penalty=repetition_penalty,
+            max_new_tokens=max_new_tokens,
+        )
+
+    if mode == "voice_design":
+        if not instruct:
+            raise HTTPException(status_code=400, detail="voice_design mode requires instruct")
+        wav_result, status = local_runtime.generate_voice_design(text, language, instruct)
+    elif mode == "custom_voice":
+        if not speaker:
+            raise HTTPException(status_code=400, detail="custom_voice mode requires speaker")
+        wav_result, status = local_runtime.generate_custom_voice(text, language, speaker, instruct, model_size, checkpoint_path)
+    else:
+        raise HTTPException(status_code=400, detail=f"unsupported mode: {mode}")
+
+    if wav_result is None:
+        raise HTTPException(status_code=400, detail=status)
+
+    sr, wav = wav_result
+    import soundfile as sf
+
+    buffer = BytesIO()
+    sf.write(buffer, wav, sr, format="WAV")
+    buffer.seek(0)
+    return Response(content=buffer.read(), media_type="audio/wav")
 
 
-demo = build_ui(runtime, settings)
+demo = build_ui(proxy, settings)
 app = gr.mount_gradio_app(app, demo, path="/")

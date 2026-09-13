@@ -1,7 +1,3 @@
-> TTD deployment: the maintained formal target is one self-contained Qwen Fusion
-> service. See [the fusion runtime, migration and acceptance runbook](docs/fusion-consolidation.md).
-> Do not redeploy the retired Base stack alongside it.
-
 # Qwen3-TTS
 
 <br>
