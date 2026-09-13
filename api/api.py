@@ -128,41 +128,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.post(
-    "/api/tts",
-    openapi_extra={
-        "summary": "TTS语音合成",
-        "description": """
-**模式参数约束：**
-
-- `mode=voice_clone` (默认): 语音克隆模式，适用于 Base 模型
-  - **必需**: `ref_audio` (参考音频文件)
-  - **可选**: `ref_text`, `x_vector_only_mode`
-  
-- `mode=voice_design`: 音色设计模式，适用于 VoiceDesign 模型  
-  - **必需**: `instruct` (自然语言描述目标音色/风格)
-  - **注意**: 不需要 `ref_audio`
-  
-- `mode=custom_voice`: 预设说话人模式，适用于 CustomVoice 模型
-  - **必需**: `speaker` (预设说话人ID)
-  - **可选**: `instruct` (额外的音色控制指令)
-  - **注意**: 不需要 `ref_audio`，可用 `/api/speakers` 查询支持的说话人
-
-**通用参数**：`text`, `language`, `speed`, `expected_duration`, `postprocess`, `lufs`, `remove_silence`, `temperature`, `top_p`, `top_k`, `repetition_penalty`, `max_new_tokens`
-
-**模型类型检查**: 如果请求的模式不被当前加载的模型支持，将返回 400 错误。
-        """
-    }
-)
+@app.post("/api/tts")
 async def api_tts(
     text: str = Form(...),
-    language: str = Form("auto"),
-    mode: str = Form("voice_clone"),
-    ref_audio: Optional[UploadFile] = File(None),
+    ref_audio: UploadFile = File(...),
     ref_text: Optional[str] = Form(None),
+    language: str = Form("auto"),
     x_vector_only_mode: bool = Form(False),
-    instruct: Optional[str] = Form(None),
-    speaker: Optional[str] = Form(None),
     remove_silence: bool = Form(False),
     speed: float = Form(1.0),
     expected_duration: Optional[float] = Form(None),
@@ -177,32 +149,26 @@ async def api_tts(
     if _model_manager is None:
         raise HTTPException(status_code=503, detail="Model manager not initialized")
 
-    # 获取模型实例
-    _model = _model_manager.get()
-    model_type = _model.model.tts_model_type
-
-    # 根据后端模型类型决定调用哪个生成方法，忽略 mode 参数
-    # 如果请求打到不匹配的后端，模型内部会抛出 ValueError
     t0 = time.perf_counter()
     temp_ref = None
-
+    
     try:
         if speed <= 0:
             raise HTTPException(status_code=400, detail="speed must be > 0")
         if expected_duration is not None and expected_duration <= 0:
             raise HTTPException(status_code=400, detail="expected_duration must be > 0")
 
-        # voice_clone 模式下读取参考音频
-        if mode == "voice_clone" and ref_audio is not None:
-            ref_data = await ref_audio.read()
-            with tempfile.NamedTemporaryFile(suffix=os.path.splitext(ref_audio.filename or "")[1] or ".wav", delete=False) as f_ref:
-                f_ref.write(ref_data)
-                temp_ref = f_ref.name
+        # 获取模型实例
+        _model = _model_manager.get()
+        ref_data = await ref_audio.read()
+        with tempfile.NamedTemporaryFile(suffix=os.path.splitext(ref_audio.filename or "")[1] or ".wav", delete=False) as f_ref:
+            f_ref.write(ref_data)
+            temp_ref = f_ref.name
 
         language_norm = validate_language_or_400(language, lambda: _model)
 
         logger.info(
-            f"Generating TTS for text: {text[:50]}... (mode={mode}, lang={language_norm})"
+            f"Generating TTS for text: {text[:50]}... (lang={language_norm}, xvec={x_vector_only_mode})"
         )
 
         def _clamp(v: float, lo: float, hi: float) -> float:
@@ -217,51 +183,18 @@ async def api_tts(
             return float(wav_trim.shape[0]) / float(_sr)
 
         def _infer_once():
-            # 根据后端模型类型自动选择生成方法
-            if model_type == "base":
-                if ref_audio is None:
-                    raise ValueError("base model requires ref_audio")
-                return _model.generate_voice_clone(
-                    text=text,
-                    language=language_norm,
-                    ref_audio=temp_ref,
-                    ref_text=ref_text,
-                    x_vector_only_mode=x_vector_only_mode,
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    repetition_penalty=repetition_penalty,
-                    max_new_tokens=max_new_tokens,
-                )
-            elif model_type == "voice_design":
-                if not instruct:
-                    raise ValueError("voice_design model requires instruct parameter")
-                return _model.generate_voice_design(
-                    text=text,
-                    language=language_norm,
-                    instruct=instruct,
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    repetition_penalty=repetition_penalty,
-                    max_new_tokens=max_new_tokens,
-                )
-            elif model_type == "custom_voice":
-                if not speaker:
-                    raise ValueError("custom_voice model requires speaker parameter")
-                return _model.generate_custom_voice(
-                    text=text,
-                    language=language_norm,
-                    speaker=speaker,
-                    instruct=instruct,
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    repetition_penalty=repetition_penalty,
-                    max_new_tokens=max_new_tokens,
-                )
-            else:
-                raise ValueError(f"Unknown model type: {model_type}")
+            return _model.generate_voice_clone(
+                text=text,
+                language=language_norm,
+                ref_audio=temp_ref,
+                ref_text=ref_text,
+                x_vector_only_mode=x_vector_only_mode,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                repetition_penalty=repetition_penalty,
+                max_new_tokens=max_new_tokens,
+            )
 
         # 执行推理
         # Qwen3TTSModel.generate_voice_clone 返回 (wavs, sample_rate)
@@ -330,20 +263,6 @@ async def api_tts(
                 os.remove(temp_ref)
             except Exception:
                 pass
-
-
-@app.get("/api/speakers")
-async def get_speakers():
-    """
-    获取当前模型支持的预设说话人列表（仅 CustomVoice 模型支持）。
-    """
-    if _model_manager is None:
-        raise HTTPException(status_code=503, detail="Model manager not initialized")
-
-    _model = _model_manager.get()
-    speakers = _model.get_supported_speakers()
-    return {"speakers": speakers}
-
 
 if __name__ == "__main__":
     import uvicorn
