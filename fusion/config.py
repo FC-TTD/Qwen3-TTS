@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 import os
 
@@ -6,11 +8,10 @@ import os
 class FusionSettings:
     host: str = os.environ.get("HOST", "0.0.0.0")
     port: int = int(os.environ.get("PORT", "8000"))
-    idle_seconds: int = int(os.environ.get("FUSION_IDLE_SECONDS", "7200"))
-    max_pending: int = int(os.environ.get("FUSION_MAX_PENDING", "8"))
-    queue_timeout: float = float(os.environ.get("FUSION_QUEUE_TIMEOUT_SECONDS", "300"))
-    enable_auto_asr: bool = False
-    enable_finetuning: bool = False
+    base_api_url: str = os.environ.get("BASE_API_URL", "http://qwen-api-base:8000")
+    request_timeout_seconds: float = float(os.environ.get("FUSION_REQUEST_TIMEOUT_SECONDS", "300"))
+    enable_auto_asr: bool = os.environ.get("FUSION_ENABLE_AUTO_ASR", "false").lower() == "true"
+    enable_finetuning: bool = os.environ.get("FUSION_ENABLE_FINETUNING", "false").lower() == "true"
     enable_checkpoint_selector: bool = os.environ.get("FUSION_ENABLE_CHECKPOINT_SELECTOR", "true").lower() == "true"
 
 
