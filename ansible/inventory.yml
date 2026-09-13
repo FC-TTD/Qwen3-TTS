@@ -4,11 +4,14 @@ all:
     ttd-worker:
       ansible_host: ttd-worker
       ansible_user: root
+      ansible_connection: ssh
     ttd-edge:
       ansible_host: ttd-edge
       ansible_user: root
+      ansible_connection: ssh
     ttd-nest:
       ansible_host: ttd-nest
       ansible_user: root
+      ansible_connection: ssh
     localhost:
       ansible_connection: local

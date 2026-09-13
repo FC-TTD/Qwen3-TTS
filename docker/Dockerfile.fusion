@@ -27,14 +27,14 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && /opt/appenv/bin/python -m pip install \
           "transformers==4.57.3" \
           "accelerate==1.12.0" \
-          "gradio>=5.0,<6.0" \
+          "gradio==5.50.0" \
           fastapi \
           "uvicorn[standard]" \
           python-multipart \
           httpx \
-          librosa soundfile sox onnxruntime einops scipy \
+          librosa soundfile soxr sox onnxruntime einops scipy \
     && /opt/appenv/bin/python -m pip install . --no-deps \
-    && /opt/appenv/bin/python -m pip install "ttd_fastapi_utils>=0.3.0" --index-url http://pypi-server/simple/ --trusted-host pypi-server
+    && /opt/appenv/bin/python -m pip install "ttd_fastapi_utils==0.3.3" --index-url http://pypi-server/simple/ --trusted-host pypi-server
 
 ARG FLASH_ATTN_VERSION=2.8.3
 RUN set -eux; \

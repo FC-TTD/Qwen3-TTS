@@ -2,12 +2,14 @@ version: "3.9"
 
 services:
   fusion:
-    image: registry.ttd/qwen-tts-fusion/fusion:latest
+    image: registry.ttd/qwen-tts-fusion/fusion:h-build-required
     environment:
       - TZ=Asia/Shanghai
       - NVIDIA_VISIBLE_DEVICES=2
       - PORT=8000
-      - BASE_API_URL=http://qwen-api
+      - FUSION_IDLE_SECONDS=7200
+      - FUSION_MAX_PENDING=8
+      - FUSION_QUEUE_TIMEOUT_SECONDS=300
       - FUSION_ENABLE_AUTO_ASR=false
       - FUSION_ENABLE_FINETUNING=false
       - FUSION_ENABLE_CHECKPOINT_SELECTOR=true
@@ -17,10 +19,13 @@ services:
       - /TTD/04_应用/voxcpm/data:/app/data
     networks:
       - caddy
-      - qwen-internal
+    stop_grace_period: 10m
     deploy:
       mode: replicated
       replicas: 1
+      update_config:
+        order: stop-first
+        failure_action: rollback
       placement:
         constraints:
           - node.hostname == ttd-worker
@@ -49,9 +54,13 @@ services:
         caddy_3.reverse_proxy.health_interval: 30s
         caddy_3.reverse_proxy.health_timeout: 5s
         caddy_3.reverse_proxy.health_status: 200
+        caddy_4: "http://qwen-api"
+        caddy_4.reverse_proxy: "{{upstreams 8000}}"
+        caddy_4.reverse_proxy.health_uri: "/health"
+        caddy_4.reverse_proxy.health_interval: 30s
+        caddy_4.reverse_proxy.health_timeout: 5s
+        caddy_4.reverse_proxy.health_status: 200
 
 networks:
   caddy:
     external: true
-  qwen-internal:
-    driver: overlay
