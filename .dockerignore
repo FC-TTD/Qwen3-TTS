@@ -17,7 +17,18 @@ __pycache__/
 **/*.pth
 **/checkpoints/
 **/models/
+!qwen_tts/core/models/
+!qwen_tts/core/models/**
 
 # Local data
 **/data/
 **/.cache/
+
+# Development environments and generated artifacts
+.venv/
+venv/
+dist/
+build/
+outputs/
+*.wav
+*.mp3
